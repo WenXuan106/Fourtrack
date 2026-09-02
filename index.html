@@ -3,1141 +3,2246 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fourtrack — split any song into stems, free, in your browser</title>
+
+<title>Fourtrack — HTDemucs Stem Splitter</title>
+
+<!-- ONNX Runtime Web -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
+
 <style>
-  :root{
-    --bg: #15171C;
-    --panel: #1D2027;
-    --panel-raised: #22262E;
-    --hairline: #2A2E37;
-    --text: #EDEDED;
-    --text-dim: #8C8F98;
-    --text-faint: #5B5E67;
-    --vocals: #E8A63D;
-    --instrumental: #4FB89C;
-    --bass: #D9564F;
-    --other: #6E8FD9;
-    --radius: 10px;
+:root{
+  --bg:#15171C;
+  --panel:#1D2027;
+  --panel-raised:#22262E;
+  --hairline:#2A2E37;
+  --text:#F3F4F6;
+  --muted:#9298A3;
+  --accent:#E5A13B;
+  --green:#4DB394;
+  --red:#D85A55;
+  --blue:#688BDB;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+html,body{
+  margin:0;
+  padding:0;
+  min-height:100%;
+  background:var(--bg);
+  color:var(--text);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+button,
+input{
+  font:inherit;
+}
+
+button{
+  border:1px solid var(--hairline);
+  background:var(--panel-raised);
+  color:var(--text);
+  border-radius:8px;
+  padding:9px 13px;
+  cursor:pointer;
+}
+
+button:hover{
+  border-color:#555B66;
+}
+
+button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+
+.app{
+  width:min(1100px,100%);
+  margin:auto;
+  padding:30px 18px 60px;
+}
+
+.header{
+  margin-bottom:22px;
+}
+
+.header h1{
+  margin:0;
+  font-size:28px;
+  letter-spacing:-.5px;
+}
+
+.header p{
+  color:var(--muted);
+  margin:7px 0 0;
+}
+
+.card{
+  background:var(--panel);
+  border:1px solid var(--hairline);
+  border-radius:14px;
+  padding:18px;
+  margin-top:15px;
+}
+
+.mode-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:15px;
+}
+
+.mode-btn{
+  padding:9px 14px;
+}
+
+.mode-btn.active{
+  background:var(--accent);
+  color:#15120D;
+  border-color:var(--accent);
+  font-weight:700;
+}
+
+.mode-note{
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.5;
+}
+
+.drop-zone{
+  border:1px dashed #484E59;
+  border-radius:12px;
+  padding:45px 20px;
+  text-align:center;
+  transition:.15s;
+}
+
+.drop-zone.dragging{
+  border-color:var(--accent);
+  background:#222018;
+}
+
+.drop-title{
+  font-size:18px;
+  font-weight:700;
+}
+
+.drop-sub{
+  color:var(--muted);
+  margin-top:7px;
+}
+
+.primary{
+  background:var(--accent);
+  color:#17130D;
+  border-color:var(--accent);
+  font-weight:700;
+}
+
+.status{
+  min-height:22px;
+  margin-top:15px;
+  color:var(--muted);
+}
+
+.progress{
+  height:7px;
+  background:#292E36;
+  border-radius:20px;
+  overflow:hidden;
+  margin-top:8px;
+}
+
+.progress-fill{
+  width:0%;
+  height:100%;
+  background:var(--green);
+  transition:width:.15s;
+}
+
+.file-info{
+  margin-top:12px;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.track-list{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:12px;
+  margin-top:15px;
+}
+
+.track{
+  background:var(--panel-raised);
+  border:1px solid var(--hairline);
+  border-top:3px solid var(--track-color);
+  border-radius:11px;
+  padding:13px;
+}
+
+.track-title{
+  font-size:17px;
+  font-weight:700;
+}
+
+.track-tag{
+  color:var(--muted);
+  font-size:12px;
+  margin-top:3px;
+}
+
+.track audio{
+  width:100%;
+  margin-top:12px;
+}
+
+.track button{
+  width:100%;
+  margin-top:9px;
+}
+
+.master{
+  margin-top:15px;
+}
+
+.master audio{
+  width:100%;
+}
+
+.section-title{
+  font-size:16px;
+  font-weight:700;
+}
+
+.small{
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.55;
+}
+
+.warn{
+  color:#D9B56E;
+}
+
+@media(max-width:800px){
+  .track-list{
+    grid-template-columns:repeat(2,1fr);
+  }
+}
+
+@media(max-width:480px){
+  .app{
+    padding:20px 12px 45px;
   }
 
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    line-height: 1.45;
+  .track-list{
+    grid-template-columns:1fr;
   }
-  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace; }
-
-  a, button, input { font-family: inherit; }
-  button { cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--vocals); outline-offset: 2px; }
-
-  .app {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 32px 20px 80px;
-  }
-
-  /* ---------- header ---------- */
-  .topbar {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 28px;
-  }
-  .brand-mark {
-    flex: none;
-    width: 44px;
-    height: 44px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, var(--vocals), var(--bass) 34%, var(--instrumental) 68%, var(--other));
-    position: relative;
-  }
-  .brand-mark::after{
-    content:"";
-    position:absolute; inset: 3px;
-    border-radius: 6px;
-    background: repeating-linear-gradient(90deg, var(--panel) 0 3px, transparent 3px 9px);
-    opacity: .9;
-  }
-  h1 {
-    margin: 0;
-    font-size: 22px;
-    letter-spacing: -0.01em;
-    font-weight: 650;
-  }
-  .tagline {
-    margin: 4px 0 0;
-    color: var(--text-dim);
-    font-size: 14.5px;
-    max-width: 46ch;
-  }
-
-  /* ---------- dropzone ---------- */
-  .dropzone {
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius);
-    background: var(--panel);
-    padding: 48px 24px;
-    text-align: center;
-    transition: border-color .15s ease, background .15s ease;
-  }
-  .dropzone.drag {
-    border-color: var(--instrumental);
-    background: var(--panel-raised);
-  }
-  .slot {
-    width: 56px; height: 56px;
-    margin: 0 auto 16px;
-    border-radius: 50%;
-    border: 1.5px solid var(--hairline);
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-dim);
-  }
-  .dz-title { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
-  .dz-sub { margin: 0; color: var(--text-dim); font-size: 13.5px; }
-  .link-btn {
-    background: none; border: none; color: var(--vocals);
-    font-size: inherit; padding: 0; text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-  .file-note { margin-top: 14px; font-size: 12px; color: var(--text-faint); }
-
-  .error-banner {
-    margin-top: 14px;
-    background: rgba(217,86,79,0.12);
-    border: 1px solid rgba(217,86,79,0.4);
-    color: #F0B4B0;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13.5px;
-    text-align: left;
-  }
-
-  /* ---------- workspace ---------- */
-  .workspace { margin-top: 26px; }
-  .hidden { display: none !important; }
-
-  .track-meta {
-    display: flex; justify-content: space-between; align-items: baseline;
-    margin-bottom: 10px; gap: 12px;
-  }
-  .track-name { font-size: 14px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .change-btn {
-    background: none; border: 1px solid var(--hairline); color: var(--text-dim);
-    border-radius: 6px; padding: 4px 10px; font-size: 12.5px; flex: none;
-  }
-  .change-btn:hover { color: var(--text); border-color: var(--text-dim); }
-
-  .master-strip {
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    display: flex; align-items: center; gap: 14px;
-  }
-  .transport-btn {
-    flex: none;
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    border: 1px solid var(--hairline);
-    background: var(--panel-raised);
-    color: var(--text);
-    font-size: 15px;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .transport-btn:hover { border-color: var(--text-dim); }
-  .transport-btn:disabled { opacity: .4; cursor: not-allowed; }
-
-  .waveform-wrap {
-    position: relative;
-    flex: 1;
-    height: 64px;
-    cursor: pointer;
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--panel-raised);
-  }
-  .waveform-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-  #playhead { pointer-events: none; }
-
-  .time-readout {
-    flex: none;
-    font-size: 12.5px;
-    color: var(--text-dim);
-    min-width: 96px;
-    text-align: right;
-  }
-
-  .processing-strip {
-    display: flex; align-items: center; gap: 10px;
-    margin-top: 10px; font-size: 13px; color: var(--text-dim);
-  }
-  .spinner {
-    width: 14px; height: 14px; border-radius: 50%;
-    border: 2px solid var(--hairline);
-    border-top-color: var(--instrumental);
-    animation: spin .8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ---------- console ---------- */
-  .console {
-    margin-top: 18px;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-  }
-  .strip {
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    border-top: 2px solid var(--accent);
-    border-radius: var(--radius);
-    padding: 14px 10px 16px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-  }
-  .strip.muted-out { opacity: .45; }
-  .strip-head { text-align: center; }
-  .strip-label { display: block; font-size: 13.5px; font-weight: 650; }
-  .strip-tag { display: block; margin-top: 2px; font-size: 10.5px; color: var(--text-faint); }
-
-  .strip-body { display: flex; align-items: center; gap: 10px; }
-  .meter {
-    width: 14px; height: 120px;
-    border-radius: 3px;
-    background: var(--hairline);
-  }
-  .fader-wrap { width: 40px; height: 120px; display: flex; align-items: center; justify-content: center; }
-  .fader {
-    width: 112px; height: 22px;
-    transform: rotate(-90deg);
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-  }
-  .fader::-webkit-slider-runnable-track {
-    height: 4px; border-radius: 2px; background: var(--hairline);
-  }
-  .fader::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 16px; height: 16px; margin-top: -6px;
-    border-radius: 50%;
-    background: var(--accent);
-    border: 2px solid #0F1013;
-  }
-  .fader::-moz-range-track { height: 4px; border-radius: 2px; background: var(--hairline); }
-  .fader::-moz-range-thumb {
-    width: 14px; height: 14px; border-radius: 50%;
-    background: var(--accent); border: 2px solid #0F1013;
-  }
-
-  .strip-buttons { display: flex; gap: 6px; }
-  .chip {
-    width: 28px; height: 24px;
-    border-radius: 5px;
-    border: 1px solid var(--hairline);
-    background: var(--panel-raised);
-    color: var(--text-dim);
-    font-size: 11.5px;
-    font-weight: 700;
-  }
-  .chip.active-mute { background: var(--bass); border-color: var(--bass); color: #1a0d0c; }
-  .chip.active-solo { background: var(--accent); border-color: var(--accent); color: #1a1a0d; }
-
-  .dl-btn {
-    width: 100%;
-    padding: 7px 4px;
-    border-radius: 6px;
-    border: 1px solid var(--hairline);
-    background: transparent;
-    color: var(--text-dim);
-    font-size: 11.5px;
-  }
-  .dl-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
-  .dl-btn:disabled { opacity: .35; cursor: not-allowed; }
-
-  .strength-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 14px;
-    padding: 10px 14px;
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    border-radius: 8px;
-    font-size: 12.5px;
-    color: var(--text-dim);
-  }
-  .strength-row label { flex: none; }
-  .strength-row input[type="range"] {
-    flex: 1;
-    accent-color: var(--vocals);
-  }
-  .strength-row .mono { flex: none; color: var(--text); min-width: 34px; text-align: right; }
-
-  .mono-note {
-    margin-top: 14px;
-    font-size: 12.5px;
-    color: var(--text-faint);
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    border-radius: 8px;
-    padding: 10px 12px;
-  }
-
-  details.how {
-    margin-top: 22px;
-    border-top: 1px solid var(--hairline);
-    padding-top: 16px;
-  }
-  details.how summary {
-    cursor: pointer;
-    font-size: 13.5px;
-    color: var(--text-dim);
-    list-style: none;
-  }
-  details.how summary::-webkit-details-marker { display: none; }
-  details.how summary::before { content: "+ "; color: var(--text-faint); }
-  details.how[open] summary::before { content: "– "; }
-  details.how p {
-    font-size: 13.5px;
-    color: var(--text-dim);
-    max-width: 68ch;
-    margin: 12px 0 0;
-  }
-
-  footer.note {
-    margin-top: 40px;
-    font-size: 12px;
-    color: var(--text-faint);
-    text-align: center;
-  }
-
-  @media (max-width: 700px) {
-    .console { grid-template-columns: repeat(2, 1fr); }
-    .topbar { align-items: center; }
-    .master-strip { flex-wrap: wrap; }
-    .time-readout { order: 3; width: 100%; text-align: left; margin-top: 4px; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-  }
+}
 </style>
 </head>
+
 <body>
+
 <div class="app">
 
-  <div class="topbar">
-    <div class="brand-mark" aria-hidden="true"></div>
-    <div>
-      <h1>Fourtrack</h1>
-      <p class="tagline">Split a song into vocals, instrumental, bass, and everything else — entirely in your browser. Nothing gets uploaded, so it's free with no limits.</p>
-    </div>
-  </div>
+  <header class="header">
+    <h1>Fourtrack</h1>
+    <p>Browser-based music stem separation with HTDemucs.</p>
+  </header>
 
-  <div class="mode-row" id="modeRow">
-    <button class="mode-btn active" data-mode="dsp" id="modeBtnDsp">Built-in — instant</button>
-    <button class="mode-btn" data-mode="ai" id="modeBtnAi">Demucs AI — most accurate</button>
-  </div>
-  <p class="mode-note" id="modeNote">Signal processing, runs instantly, works on any device.</p>
+  <section class="card">
 
-  <section id="dropzone" class="dropzone">
-    <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.aac,video/mp4,.mp4" hidden>
-    <div class="slot" aria-hidden="true">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-        <path d="M12 3v12" stroke-linecap="round"/>
-        <path d="M7 9l5-6 5 6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round"/>
-      </svg>
+    <div class="mode-row">
+      <button
+        class="mode-btn active"
+        id="dspMode"
+        type="button">
+        Built-in — instant
+      </button>
+
+      <button
+        class="mode-btn"
+        id="aiMode"
+        type="button">
+        HTDemucs AI — accurate
+      </button>
     </div>
-    <p class="dz-title">Drop an audio file here</p>
-    <p class="dz-sub">or <button id="browseBtn" class="link-btn">choose a file</button> — MP3, WAV, M4A, OGG, MP4</p>
-    <p class="file-note">Works best under ~15 minutes long. Processed locally — your file never leaves this tab.</p>
-    <div id="errorBanner" class="error-banner hidden"></div>
+
+    <div id="modeNote" class="mode-note">
+      Fast stereo DSP separation. No model download required.
+    </div>
+
   </section>
 
-  <section id="workspace" class="workspace hidden">
-    <div class="track-meta">
-      <span id="trackName" class="track-name mono"></span>
-      <button id="changeBtn" class="change-btn">Change track</button>
-    </div>
+  <section class="card">
 
-    <div class="master-strip">
-      <button id="playBtn" class="transport-btn" disabled aria-label="Play">▶</button>
-      <div class="waveform-wrap" id="waveformWrap">
-        <canvas id="waveform"></canvas>
-        <canvas id="playhead"></canvas>
+    <div
+      id="dropZone"
+      class="drop-zone">
+
+      <input
+        id="fileInput"
+        type="file"
+        accept="audio/*,.wav,.mp3,.m4a,.ogg,.opus,.flac,.aac,.webm,.mp4"
+        hidden>
+
+      <button
+        id="chooseButton"
+        class="primary"
+        type="button">
+        Choose Audio
+      </button>
+
+      <div class="drop-title">
+        Drop an audio file here
       </div>
-      <div id="timeReadout" class="time-readout mono">0:00 / 0:00</div>
+
+      <div class="drop-sub">
+        MP3, WAV, M4A, OGG, FLAC and other browser-supported formats
+      </div>
+
     </div>
 
-    <div id="processingStrip" class="processing-strip hidden">
-      <div class="spinner"></div>
-      <span id="processingLabel">Splitting into stems…</span>
+    <div id="status" class="status">
+      Ready.
     </div>
 
-    <div class="strength-row" id="strengthRow">
-      <label for="strengthSlider">Separation strength</label>
-      <input type="range" id="strengthSlider" min="0.5" max="2" step="0.1" value="1">
-      <span id="strengthReadout" class="mono">1.0×</span>
+    <div class="progress">
+      <div
+        id="progressFill"
+        class="progress-fill">
+      </div>
     </div>
 
-    <div id="aiStatusRow" class="ai-status-row hidden">
-      <span id="aiStatusText">Demucs AI mode — a real neural network, not signal processing.</span>
-    </div>
+    <div id="fileInfo" class="file-info"></div>
 
-    <div id="console" class="console"></div>
-
-    <p id="monoNote" class="mono-note hidden">This file is mono, so there's no left/right difference to work with. Vocal isolation and removal fall back to frequency filtering only, and will be less clean than on a stereo mix.</p>
-
-    <details class="how">
-      <summary>How this actually works</summary>
-      <p id="howItWorksDsp">This runs real signal processing in your browser, not a trained separation model — no AI, which is why it's free with no server involved. For every moment and every frequency in the track, it compares the left and right channels: content that matches closely between them — usually the lead vocal, mixed dead-center — gets pulled into <strong>Vocals</strong>; everything left over becomes <strong>Instrumental</strong>, and it's also checked against the frequency range a voice actually occupies so a dead-center kick drum or bass line doesn't get mistaken for vocal. That's a frequency-by-frequency, moment-by-moment comparison (a short-time Fourier transform under the hood), not one blanket subtraction across the whole mix. <strong>Bass</strong> and <strong>Other</strong> are then a clean low/high split of the instrumental at 180 Hz. The <strong>separation strength</strong> slider controls how strict the left/right match has to be — push it up when vocals are still audible in Instrumental or Other, since a vocal with studio widening or doubling on it won't match perfectly between channels and needs more leniency to fully capture. That comes at the cost of a slightly less pure Vocals stem. Some vocals are widened enough that even at max strength a little will remain in the mix — that's the real ceiling of a technique based on stereo position rather than trained recognition of what a voice sounds like. It still won't cleanly lift drums out of a dense mix the way a paid neural separator will, but for isolating vocals, building karaoke tracks, and pulling out a bassline, it's well beyond a simple phase-cancellation trick — and your audio never leaves this tab.</p>
-      <p id="howItWorksAi" class="hidden">This mode runs <strong>HTDemucs</strong>, an open-source neural network trained specifically to recognize what drums, bass, vocals, and other instruments actually sound like — not just where they sit in the stereo field. That's why it can cleanly split out <strong>Drums</strong> as its own stem, something the built-in mode can't do at all. The first time you use this mode, your browser downloads the model weights (~170MB, one time, from Hugging Face's public model hub) and caches them locally. After that, everything — loading the model and running it on your track — happens entirely inside this tab using <a href="https://onnxruntime.ai/" target="_blank" rel="noopener">ONNX Runtime Web</a> and your device's GPU or CPU. Your audio file itself is never uploaded anywhere, at any point — only the (public, generic) model weights are fetched, the same file for every user. It needs a reasonably modern browser and some patience on slower hardware or long tracks.</p>
-    </details>
   </section>
 
-  <footer class="note">Runs fully client-side. No account, no upload, no server for your audio — ever.</footer>
+  <section
+    id="results"
+    class="card"
+    hidden>
+
+    <div class="section-title">
+      Stems
+    </div>
+
+    <div
+      id="trackList"
+      class="track-list">
+    </div>
+
+    <div class="master">
+      <div class="section-title">
+        Preview
+      </div>
+
+      <audio
+        id="masterPlayer"
+        controls>
+      </audio>
+    </div>
+
+  </section>
+
+  <section class="card small">
+
+    <strong>HTDemucs browser engine</strong>
+
+    <p>
+      The AI mode uses an HTDemucs ONNX model through
+      ONNX Runtime Web. The model expects stereo 44.1 kHz audio
+      in 343,980-sample chunks. Longer songs are processed with
+      overlapping chunks and overlap-add reconstruction.
+    </p>
+
+    <p class="warn">
+      HTDemucs is much more demanding than the built-in DSP mode.
+      The first AI run downloads roughly 166 MB of model data,
+      and longer songs can require a large amount of RAM.
+      Shorter tracks are recommended on iPad/mobile devices.
+    </p>
+
+  </section>
+
 </div>
 
 <script>
-(function(){
-  "use strict";
+"use strict";
 
-  const STEM_META = [
-    { key: "vocals",       label: "Vocals",       tag: "center isolate", accent: "var(--vocals)" },
-    { key: "instrumental", label: "Instrumental", tag: "vocal removed",  accent: "var(--instrumental)" },
-    { key: "bass",         label: "Bass",         tag: "below 180 Hz",   accent: "var(--bass)" },
-    { key: "other",        label: "Other",        tag: "above 180 Hz",   accent: "var(--other)" }
-  ];
-  const ACCENT_HEX = { vocals: "#E8A63D", instrumental: "#4FB89C", bass: "#D9564F", other: "#6E8FD9" };
-  const STEM_KEYS = STEM_META.map(m => m.key);
-  const CROSSOVER_HZ = 180;
+/* ============================================================
+   CONFIGURATION
+   ============================================================ */
 
-  // ---------- DOM ----------
-  const dropzone       = document.getElementById("dropzone");
-  const fileInput      = document.getElementById("fileInput");
-  const browseBtn      = document.getElementById("browseBtn");
-  const errorBanner    = document.getElementById("errorBanner");
-  const workspace       = document.getElementById("workspace");
-  const trackNameEl     = document.getElementById("trackName");
-  const changeBtn       = document.getElementById("changeBtn");
-  const playBtn         = document.getElementById("playBtn");
-  const waveformWrap     = document.getElementById("waveformWrap");
-  const waveformCanvas   = document.getElementById("waveform");
-  const playheadCanvas   = document.getElementById("playhead");
-  const timeReadout     = document.getElementById("timeReadout");
-  const processingStrip  = document.getElementById("processingStrip");
-  const processingLabel  = document.getElementById("processingLabel");
-  const consoleEl       = document.getElementById("console");
-  const monoNote        = document.getElementById("monoNote");
-  const strengthSlider  = document.getElementById("strengthSlider");
-  const strengthReadout = document.getElementById("strengthReadout");
+const MODEL_URL =
+  "https://huggingface.co/StemSplitio/htdemucs-onnx/resolve/main/htdemucs_fp16weights.onnx";
 
-  // ---------- state ----------
-  let audioCtx = null;
-  let originalBuffer = null;
-  let stemBuffers = null;
-  let duration = 0;
-  let isPlaying = false;
-  let playStartCtxTime = 0;
-  let playStartOffset = 0;
-  let sources = {};
-  let gainNodes = {};
-  let analysers = {};
-  let analyserData = {};
-  let faderValues = { vocals: 1, instrumental: 1, bass: 1, other: 1 };
-  let muted = { vocals: false, instrumental: false, bass: false, other: false };
-  let soloed = null;
-  let rafId = null;
-  let strips = {};
-  let waveformReady = false;
-  let strength = 1.0;
-  let graphReady = false;
+const TARGET_SAMPLE_RATE = 44100;
 
-  // ============================================================
-  // File intake
-  // ============================================================
-  browseBtn.addEventListener("click", () => fileInput.click());
-  dropzone.addEventListener("click", (e) => {
-    if (e.target === browseBtn) return;
+/*
+  HTDemucs ONNX input:
+  [1, 2, 343980]
+*/
+const DEMUCS_SAMPLES = 343980;
+
+/*
+  25% overlap.
+
+  This gives each chunk some shared context with the
+  neighbouring chunk while keeping the number of
+  inference calls reasonable.
+*/
+const DEMUCS_OVERLAP =
+  Math.floor(DEMUCS_SAMPLES * 0.25);
+
+const DEMUCS_HOP =
+  DEMUCS_SAMPLES - DEMUCS_OVERLAP;
+
+
+/* ============================================================
+   DOM
+   ============================================================ */
+
+const fileInput =
+  document.getElementById("fileInput");
+
+const chooseButton =
+  document.getElementById("chooseButton");
+
+const dropZone =
+  document.getElementById("dropZone");
+
+const statusElement =
+  document.getElementById("status");
+
+const progressFill =
+  document.getElementById("progressFill");
+
+const fileInfo =
+  document.getElementById("fileInfo");
+
+const results =
+  document.getElementById("results");
+
+const trackList =
+  document.getElementById("trackList");
+
+const masterPlayer =
+  document.getElementById("masterPlayer");
+
+const dspMode =
+  document.getElementById("dspMode");
+
+const aiMode =
+  document.getElementById("aiMode");
+
+const modeNote =
+  document.getElementById("modeNote");
+
+
+/* ============================================================
+   STATE
+   ============================================================ */
+
+let selectedMode = "dsp";
+
+let ortSession = null;
+
+let currentFile = null;
+
+let currentMix = null;
+
+let generatedUrls = [];
+
+let cancelRequested = false;
+
+
+/* ============================================================
+   UI HELPERS
+   ============================================================ */
+
+function setStatus(text, percent=null){
+
+  statusElement.textContent = text;
+
+  if(percent !== null){
+
+    percent =
+      Math.max(
+        0,
+        Math.min(
+          100,
+          percent
+        )
+      );
+
+    progressFill.style.width =
+      percent + "%";
+  }
+}
+
+
+function setMode(mode){
+
+  selectedMode = mode;
+
+  if(mode === "ai"){
+
+    aiMode.classList.add("active");
+    dspMode.classList.remove("active");
+
+    modeNote.textContent =
+      "HTDemucs AI separation. " +
+      "Runs locally in your browser after the model is loaded.";
+
+  }else{
+
+    dspMode.classList.add("active");
+    aiMode.classList.remove("active");
+
+    modeNote.textContent =
+      "Fast stereo DSP separation. " +
+      "No model download required.";
+  }
+
+  /*
+    If audio is already loaded, immediately rerun it.
+  */
+  if(currentMix){
+
+    processCurrentAudio().catch(handleError);
+  }
+}
+
+
+/* ============================================================
+   MODE BUTTONS
+   ============================================================ */
+
+dspMode.addEventListener(
+  "click",
+  () => setMode("dsp")
+);
+
+aiMode.addEventListener(
+  "click",
+  () => setMode("ai")
+);
+
+
+/* ============================================================
+   FILE INPUT
+   ============================================================ */
+
+chooseButton.addEventListener(
+  "click",
+  () => fileInput.click()
+);
+
+dropZone.addEventListener(
+  "click",
+  event => {
+
+    if(event.target === chooseButton){
+      return;
+    }
+
     fileInput.click();
-  });
-  fileInput.addEventListener("change", () => {
-    if (fileInput.files[0]) handleFile(fileInput.files[0]);
-  });
-
-  ["dragenter", "dragover"].forEach(evt =>
-    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("drag"); })
-  );
-  ["dragleave", "drop"].forEach(evt =>
-    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove("drag"); })
-  );
-  dropzone.addEventListener("drop", (e) => {
-    const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) handleFile(f);
-  });
-
-  changeBtn.addEventListener("click", resetToDropzone);
-
-  strengthSlider.addEventListener("input", () => {
-    strengthReadout.textContent = parseFloat(strengthSlider.value).toFixed(1) + "×";
-  });
-  strengthSlider.addEventListener("change", () => {
-    if (!originalBuffer) return;
-    strength = parseFloat(strengthSlider.value);
-    pausePlayback();
-    runSplit(originalBuffer);
-  });
-
-  function showError(msg) {
-    errorBanner.textContent = msg;
-    errorBanner.classList.remove("hidden");
   }
-  function clearError() {
-    errorBanner.classList.add("hidden");
-    errorBanner.textContent = "";
+);
+
+fileInput.addEventListener(
+  "change",
+  () => {
+
+    const file =
+      fileInput.files &&
+      fileInput.files[0];
+
+    if(file){
+      loadAudioFile(file);
+    }
+  }
+);
+
+
+/* ============================================================
+   DRAG & DROP
+   ============================================================ */
+
+["dragenter","dragover"].forEach(
+  eventName => {
+
+    dropZone.addEventListener(
+      eventName,
+      event => {
+
+        event.preventDefault();
+
+        dropZone.classList.add(
+          "dragging"
+        );
+      }
+    );
+
+  }
+);
+
+
+["dragleave","drop"].forEach(
+  eventName => {
+
+    dropZone.addEventListener(
+      eventName,
+      event => {
+
+        event.preventDefault();
+
+        dropZone.classList.remove(
+          "dragging"
+        );
+      }
+    );
+
+  }
+);
+
+
+dropZone.addEventListener(
+  "drop",
+  event => {
+
+    const file =
+      event.dataTransfer.files &&
+      event.dataTransfer.files[0];
+
+    if(file){
+      loadAudioFile(file);
+    }
+  }
+);
+
+
+/* ============================================================
+   LOAD AUDIO
+   ============================================================ */
+
+async function loadAudioFile(file){
+
+  cancelRequested = false;
+
+  currentFile = file;
+
+  clearResults();
+
+  try{
+
+    setStatus(
+      "Decoding audio…",
+      2
+    );
+
+    fileInfo.textContent =
+      file.name +
+      " • " +
+      formatBytes(file.size);
+
+    const arrayBuffer =
+      await file.arrayBuffer();
+
+    const AudioContextClass =
+      window.AudioContext ||
+      window.webkitAudioContext;
+
+    if(!AudioContextClass){
+
+      throw new Error(
+        "This browser does not support Web Audio."
+      );
+    }
+
+    const audioContext =
+      new AudioContextClass();
+
+    const decoded =
+      await audioContext.decodeAudioData(
+        arrayBuffer
+      );
+
+    await audioContext.close();
+
+    setStatus(
+      "Preparing stereo 44.1 kHz audio…",
+      5
+    );
+
+    currentMix =
+      await prepareStereo44100(
+        decoded
+      );
+
+    results.hidden = false;
+
+    await processCurrentAudio();
+
+  }catch(error){
+
+    handleError(error);
+  }
+}
+
+
+/* ============================================================
+   RESAMPLING
+   ============================================================ */
+
+async function prepareStereo44100(buffer){
+
+  /*
+    If already stereo 44.1 kHz,
+    avoid another conversion.
+  */
+
+  if(
+    buffer.sampleRate === TARGET_SAMPLE_RATE &&
+    buffer.numberOfChannels >= 2
+  ){
+
+    return {
+
+      left:
+        new Float32Array(
+          buffer.getChannelData(0)
+        ),
+
+      right:
+        new Float32Array(
+          buffer.getChannelData(1)
+        ),
+
+      sampleRate:
+        TARGET_SAMPLE_RATE
+    };
   }
 
-  async function handleFile(file) {
-    clearError();
-    if (!file.type.startsWith("audio/") && !file.type.startsWith("video/mp4") &&
-        !/\.(mp3|wav|m4a|ogg|opus|flac|aac|weba|webm|mp4|m4v)$/i.test(file.name)) {
-      showError("That doesn't look like an audio file. Try MP3, WAV, M4A, OGG, Opus, or MP4.");
+
+  /*
+    Use OfflineAudioContext to let the browser perform
+    high-quality sample-rate conversion.
+  */
+
+  const targetLength =
+    Math.ceil(
+      buffer.duration *
+      TARGET_SAMPLE_RATE
+    );
+
+  const OfflineContext =
+    window.OfflineAudioContext ||
+    window.webkitOfflineAudioContext;
+
+  if(!OfflineContext){
+
+    /*
+      Fallback for browsers without OfflineAudioContext.
+    */
+
+    const channels =
+      buffer.numberOfChannels;
+
+    const sourceLeft =
+      buffer.getChannelData(0);
+
+    const sourceRight =
+      channels > 1
+        ? buffer.getChannelData(1)
+        : sourceLeft;
+
+    const result =
+      linearResampleStereo(
+        sourceLeft,
+        sourceRight,
+        buffer.sampleRate,
+        TARGET_SAMPLE_RATE
+      );
+
+    return {
+      left:result.left,
+      right:result.right,
+      sampleRate:TARGET_SAMPLE_RATE
+    };
+  }
+
+
+  const offline =
+    new OfflineContext(
+      2,
+      targetLength,
+      TARGET_SAMPLE_RATE
+    );
+
+  const source =
+    offline.createBufferSource();
+
+  source.buffer = buffer;
+
+  source.connect(
+    offline.destination
+  );
+
+  source.start(0);
+
+  const rendered =
+    await offline.startRendering();
+
+  return {
+
+    left:
+      new Float32Array(
+        rendered.getChannelData(0)
+      ),
+
+    right:
+      new Float32Array(
+        rendered.getChannelData(1)
+      ),
+
+    sampleRate:
+      TARGET_SAMPLE_RATE
+  };
+}
+
+
+/* ============================================================
+   SIMPLE RESAMPLER FALLBACK
+   ============================================================ */
+
+function linearResampleStereo(
+  left,
+  right,
+  inputRate,
+  outputRate
+){
+
+  const outputLength =
+    Math.max(
+      1,
+      Math.round(
+        left.length *
+        outputRate /
+        inputRate
+      )
+    );
+
+  const outputLeft =
+    new Float32Array(
+      outputLength
+    );
+
+  const outputRight =
+    new Float32Array(
+      outputLength
+    );
+
+  const ratio =
+    inputRate /
+    outputRate;
+
+  for(
+    let i=0;
+    i<outputLength;
+    i++
+  ){
+
+    const position =
+      i * ratio;
+
+    const index =
+      Math.floor(position);
+
+    const fraction =
+      position - index;
+
+    const i0 =
+      Math.min(
+        index,
+        left.length - 1
+      );
+
+    const i1 =
+      Math.min(
+        index + 1,
+        left.length - 1
+      );
+
+    outputLeft[i] =
+      left[i0] +
+      (
+        left[i1] -
+        left[i0]
+      ) *
+      fraction;
+
+    outputRight[i] =
+      right[i0] +
+      (
+        right[i1] -
+        right[i0]
+      ) *
+      fraction;
+  }
+
+  return {
+    left:outputLeft,
+    right:outputRight
+  };
+}
+
+
+/* ============================================================
+   PROCESS CURRENT AUDIO
+   ============================================================ */
+
+async function processCurrentAudio(){
+
+  if(!currentMix){
+    return;
+  }
+
+  cancelRequested = false;
+
+  if(selectedMode === "ai"){
+
+    await runHTDemucs(
+      currentMix
+    );
+
+  }else{
+
+    await runDSP(
+      currentMix
+    );
+  }
+}
+
+
+/* ============================================================
+   BUILT-IN DSP MODE
+   ============================================================ */
+
+/*
+  This is intentionally separate from the HTDemucs engine.
+
+  It provides a fast fallback and does not use the AI model.
+*/
+
+async function runDSP(mix){
+
+  setStatus(
+    "Running built-in DSP separation…",
+    10
+  );
+
+  await new Promise(
+    resolve => setTimeout(
+      resolve,
+      30
+    )
+  );
+
+  const length =
+    mix.left.length;
+
+  const vocalsLeft =
+    new Float32Array(length);
+
+  const vocalsRight =
+    new Float32Array(length);
+
+  const instrumentalLeft =
+    new Float32Array(length);
+
+  const instrumentalRight =
+    new Float32Array(length);
+
+  /*
+    Basic center-channel extraction.
+
+    Center information is approximately:
+
+      (L + R) / 2
+
+    This works reasonably for some stereo mixes,
+    but it is NOT equivalent to Demucs.
+  */
+
+  for(
+    let i=0;
+    i<length;
+    i++
+  ){
+
+    const l =
+      mix.left[i];
+
+    const r =
+      mix.right[i];
+
+    const center =
+      (l + r) * 0.5;
+
+    vocalsLeft[i] =
+      center;
+
+    vocalsRight[i] =
+      center;
+
+    instrumentalLeft[i] =
+      l - center;
+
+    instrumentalRight[i] =
+      r - center;
+  }
+
+  /*
+    Very simple bass/other split.
+
+    This is deliberately lightweight rather than pretending
+    it is neural separation.
+  */
+
+  const bassLeft =
+    new Float32Array(length);
+
+  const bassRight =
+    new Float32Array(length);
+
+  const otherLeft =
+    new Float32Array(length);
+
+  const otherRight =
+    new Float32Array(length);
+
+  /*
+    One-pole low-pass around ~180 Hz.
+
+    coefficient approximation for the sample rate.
+  */
+
+  const cutoff =
+    180;
+
+  const alpha =
+    Math.exp(
+      -2 *
+      Math.PI *
+      cutoff /
+      TARGET_SAMPLE_RATE
+    );
+
+  let bassL=0;
+  let bassR=0;
+
+  for(
+    let i=0;
+    i<length;
+    i++
+  ){
+
+    bassL =
+      alpha * bassL +
+      (1-alpha) *
+      instrumentalLeft[i];
+
+    bassR =
+      alpha * bassR +
+      (1-alpha) *
+      instrumentalRight[i];
+
+    bassLeft[i] =
+      bassL;
+
+    bassRight[i] =
+      bassR;
+
+    otherLeft[i] =
+      instrumentalLeft[i] -
+      bassL;
+
+    otherRight[i] =
+      instrumentalRight[i] -
+      bassR;
+  }
+
+  setStatus(
+    "Rendering DSP stems…",
+    90
+  );
+
+  const stems = {
+
+    vocals:
+      makeStereoWav(
+        vocalsLeft,
+        vocalsRight
+      ),
+
+    instrumental:
+      makeStereoWav(
+        instrumentalLeft,
+        instrumentalRight
+      ),
+
+    bass:
+      makeStereoWav(
+        bassLeft,
+        bassRight
+      ),
+
+    other:
+      makeStereoWav(
+        otherLeft,
+        otherRight
+      )
+  };
+
+  renderResults(
+    stems,
+    false
+  );
+
+  setStatus(
+    "DSP separation complete.",
+    100
+  );
+}
+
+
+/* ============================================================
+   HTDEMUCS SESSION
+   ============================================================ */
+
+async function getHTDemucsSession(){
+
+  if(ortSession){
+    return ortSession;
+  }
+
+  setStatus(
+    "Loading HTDemucs model (~166 MB)…",
+    6
+  );
+
+  /*
+    Point ONNX Runtime at its WASM files.
+
+    WASM is used because it is considerably more broadly
+    compatible than assuming WebGPU support.
+  */
+
+  ort.env.wasm.wasmPaths =
+    "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/";
+
+  /*
+    Keep the thread count conservative.
+
+    This is particularly important on iPad/mobile devices.
+  */
+
+  ort.env.wasm.numThreads =
+    Math.min(
+      2,
+      navigator.hardwareConcurrency || 2
+    );
+
+  ort.env.wasm.simd = true;
+
+  try{
+
+    ortSession =
+      await ort.InferenceSession.create(
+        MODEL_URL,
+        {
+          executionProviders:[
+            "wasm"
+          ],
+
+          graphOptimizationLevel:
+            "all"
+        }
+      );
+
+  }catch(error){
+
+    ortSession = null;
+
+    throw new Error(
+      "Could not load HTDemucs. " +
+      "Check your internet connection and make sure " +
+      "the browser allows cross-origin model loading. " +
+      error.message
+    );
+  }
+
+  return ortSession;
+}
+
+
+/* ============================================================
+   HTDEMUCS ENGINE
+   ============================================================ */
+
+async function runHTDemucs(mix){
+
+  const session =
+    await getHTDemucsSession();
+
+  if(cancelRequested){
+    return;
+  }
+
+  const totalSamples =
+    mix.left.length;
+
+  /*
+    We allocate one output buffer per:
+      stem
+      channel
+
+    Stem order from this HTDemucs ONNX model:
+
+      0 = drums
+      1 = bass
+      2 = other
+      3 = vocals
+  */
+
+  const outputs =
+    Array.from(
+      {length:4},
+      () => [
+        new Float32Array(
+          totalSamples
+        ),
+
+        new Float32Array(
+          totalSamples
+        )
+      ]
+    );
+
+  /*
+    Normalization buffer for overlap-add.
+  */
+
+  const weights =
+    new Float32Array(
+      totalSamples
+    );
+
+  /*
+    Crossfade window.
+
+    It has a flat middle and fades the boundaries.
+    This avoids clicks between model chunks.
+  */
+
+  const window =
+    createCrossfadeWindow();
+
+
+  /*
+    Calculate how many chunks are required.
+  */
+
+  const chunkCount =
+    Math.max(
+      1,
+      Math.ceil(
+        Math.max(
+          0,
+          totalSamples -
+          DEMUCS_OVERLAP
+        ) /
+        DEMUCS_HOP
+      )
+    );
+
+
+  setStatus(
+    "HTDemucs ready. Separating…",
+    10
+  );
+
+
+  for(
+    let chunkIndex=0;
+    chunkIndex<chunkCount;
+    chunkIndex++
+  ){
+
+    if(cancelRequested){
+
+      setStatus(
+        "Separation cancelled.",
+        0
+      );
+
       return;
     }
-    try {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = await audioCtx.decodeAudioData(arrayBuffer);
-      originalBuffer = buffer;
-      duration = buffer.duration;
-      trackNameEl.textContent = file.name;
-      enterWorkspace();
-      monoNote.classList.toggle("hidden", buffer.numberOfChannels > 1);
-      await runSplit(buffer);
-    } catch (err) {
-      console.error(err);
-      showError("Couldn't decode that file in this browser. Try converting it to MP3 or WAV first.");
-    }
-  }
 
-  function enterWorkspace() {
-    dropzone.classList.add("hidden");
-    workspace.classList.remove("hidden");
-    buildConsole();
-    resizeWaveformCanvases();
-    drawWaveform();
-    updateTimeReadout(0);
-    playBtn.disabled = true;
-  }
 
-  function resetToDropzone() {
-    pausePlayback();
-    originalBuffer = null;
-    stemBuffers = null;
-    duration = 0;
-    playStartOffset = 0;
-    workspace.classList.add("hidden");
-    dropzone.classList.remove("hidden");
-    fileInput.value = "";
-    clearError();
-  }
+    const start =
+      chunkIndex *
+      DEMUCS_HOP;
 
-  // ============================================================
-  // DSP core — FFT / inverse FFT (iterative radix-2 Cooley-Tukey)
-  // ============================================================
-  function fft(re, im) {
-    const n = re.length;
-    for (let i = 1, j = 0; i < n; i++) {
-      let bit = n >> 1;
-      for (; j & bit; bit >>= 1) j ^= bit;
-      j ^= bit;
-      if (i < j) {
-        let t = re[i]; re[i] = re[j]; re[j] = t;
-        t = im[i]; im[i] = im[j]; im[j] = t;
-      }
-    }
-    for (let len = 2; len <= n; len <<= 1) {
-      const ang = -2 * Math.PI / len;
-      const wr = Math.cos(ang), wi = Math.sin(ang);
-      const half = len >> 1;
-      for (let i = 0; i < n; i += len) {
-        let curR = 1, curI = 0;
-        for (let k = 0; k < half; k++) {
-          const uR = re[i + k], uI = im[i + k];
-          const vR = re[i + k + half] * curR - im[i + k + half] * curI;
-          const vI = re[i + k + half] * curI + im[i + k + half] * curR;
-          re[i + k] = uR + vR; im[i + k] = uI + vI;
-          re[i + k + half] = uR - vR; im[i + k + half] = uI - vI;
-          const nextR = curR * wr - curI * wi;
-          const nextI = curR * wi + curI * wr;
-          curR = nextR; curI = nextI;
-        }
-      }
-    }
-  }
-  function ifft(re, im) {
-    const n = re.length;
-    for (let i = 0; i < n; i++) im[i] = -im[i];
-    fft(re, im);
-    for (let i = 0; i < n; i++) { re[i] = re[i] / n; im[i] = -im[i] / n; }
-  }
-  function hannWindow(n) {
-    const w = new Float64Array(n);
-    for (let i = 0; i < n; i++) w[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
-    return w;
-  }
+    const end =
+      Math.min(
+        start +
+        DEMUCS_SAMPLES,
+        totalSamples
+      );
 
-  const STFT_SIZE = 2048;
-  const STFT_HOP = 512; // 75% overlap
+    const length =
+      end -
+      start;
 
-  // A lead vocal's energy is concentrated roughly 100Hz-5kHz (fundamental +
-  // formants). This gates the extraction to that range regardless of how
-  // "centered" a bin looks, because plenty of mixes pan the kick and bass
-  // dead-center too — sometimes even more centered than a vocal that's been
-  // doubled or widened with a chorus effect. Without this, the extractor
-  // happily grabs whichever is most centered, vocal or not. Higher strength
-  // widens the window, trading some purity for catching more of a vocal
-  // that isn't perfectly centered.
-  function buildVocalPrior(sampleRate, strength) {
-    const t = Math.max(0, Math.min(1, (strength - 0.5) / 1.5)); // 0..1 over the slider range
-    const loKnee = 200 - t * 100;   // 200Hz -> 100Hz
-    const loFull = loKnee + 100;
-    const hiFull = 3800 + t * 1200; // 3800Hz -> 5000Hz
-    const hiKnee = hiFull + 2000;
-    const prior = new Float64Array(STFT_SIZE);
-    for (let k = 0; k < STFT_SIZE; k++) {
-      const kk = k <= STFT_SIZE / 2 ? k : STFT_SIZE - k;
-      const freq = kk * sampleRate / STFT_SIZE;
-      let p;
-      if (freq <= loKnee) p = 0;
-      else if (freq < loFull) p = (freq - loKnee) / (loFull - loKnee);
-      else if (freq <= hiFull) p = 1;
-      else if (freq < hiKnee) p = 1 - (freq - hiFull) / (hiKnee - hiFull);
-      else p = 0;
-      prior[k] = p;
-    }
-    return prior;
-  }
 
-  // Frequency-bin-by-frequency-bin center-channel mask: for every bin in
-  // every analysis frame, compares how similar left and right are, then
-  // gates that by how plausible the bin's frequency is for a lead vocal.
-  // Bins that both match closely between channels AND sit in the vocal
-  // range score near 1; everything else is suppressed. This is far more
-  // selective than a single broadband phase-cancellation pass, because it
-  // adapts per frequency and per moment instead of one blanket subtraction.
-  // Strength lowers how strict the L/R match has to be — a vocal that's
-  // been stereo-widened won't match perfectly, so pushing strength up
-  // captures more of it (cleaner Instrumental) at the cost of a slightly
-  // less pure Vocals stem.
-  function extractCenterVocal(L, R, sampleRate, strength, onProgress) {
-    return new Promise((resolve) => {
-      const len = L.length;
-      const win = hannWindow(STFT_SIZE);
-      const out = new Float64Array(len);
-      const winSum = new Float64Array(len);
-      const t = Math.max(0, Math.min(1, (strength - 0.5) / 1.5));
-      const exponent = 3.5 - t * 2.5; // 3.5 (strict) -> 1.0 (lenient)
-      const prior = buildVocalPrior(sampleRate, strength);
-      const totalFrames = Math.ceil(len / STFT_HOP) + Math.ceil(STFT_SIZE / STFT_HOP);
+    /*
+      Model input:
 
-      const Lre = new Float64Array(STFT_SIZE), Lim = new Float64Array(STFT_SIZE);
-      const Rre = new Float64Array(STFT_SIZE), Rim = new Float64Array(STFT_SIZE);
-      let frameIdx = 0;
+        [1, 2, 343980]
 
-      function processChunk() {
-        const chunkEnd = Math.min(totalFrames, frameIdx + 200);
-        for (; frameIdx < chunkEnd; frameIdx++) {
-          const start = frameIdx * STFT_HOP;
-          for (let i = 0; i < STFT_SIZE; i++) {
-            const s = start + i;
-            const w = win[i];
-            Lre[i] = (s < len ? L[s] : 0) * w;
-            Rre[i] = (s < len ? R[s] : 0) * w;
-            Lim[i] = 0; Rim[i] = 0;
-          }
-          fft(Lre, Lim);
-          fft(Rre, Rim);
-          for (let k = 0; k < STFT_SIZE; k++) {
-            const lRe = Lre[k], lIm = Lim[k], rRe = Rre[k], rIm = Rim[k];
-            const lMag = Math.hypot(lRe, lIm), rMag = Math.hypot(rRe, rIm);
-            const diffMag = Math.hypot(lRe - rRe, lIm - rIm);
-            const sumMag = lMag + rMag + 1e-9;
-            let sim = 1 - diffMag / sumMag;
-            if (sim < 0) sim = 0; else if (sim > 1) sim = 1;
-            const mask = Math.pow(sim, exponent) * prior[k];
-            Lre[k] = (lRe + rRe) * 0.5 * mask;
-            Lim[k] = (lIm + rIm) * 0.5 * mask;
-          }
-          ifft(Lre, Lim);
-          for (let i = 0; i < STFT_SIZE; i++) {
-            const s = start + i;
-            if (s < len) { out[s] += Lre[i]; winSum[s] += win[i]; }
-          }
-        }
-        if (onProgress) onProgress(Math.min(100, Math.round(100 * frameIdx / totalFrames)));
-        if (frameIdx < totalFrames) {
-          setTimeout(processChunk, 0);
-        } else {
-          // Guard against edges where window overlap hasn't fully built up
-          // yet (winSum near zero) — dividing there would spike to huge,
-          // clipping-inducing values instead of correctly reading ~0.
-          let maxWinSum = 0;
-          for (let i = 0; i < len; i++) if (winSum[i] > maxWinSum) maxWinSum = winSum[i];
-          const floor = maxWinSum * 0.05;
-          const result = new Float32Array(len);
-          for (let i = 0; i < len; i++) result[i] = winSum[i] > floor ? out[i] / winSum[i] : 0;
-          resolve(result);
-        }
-      }
-      processChunk();
-    });
-  }
+      First channel is the entire left plane.
+      Second channel is the entire right plane.
+    */
 
-  // ============================================================
-  // Stem rendering
-  // ============================================================
-  async function runSplit(buffer) {
-    processingStrip.classList.remove("hidden");
-    STEM_KEYS.forEach(k => setDownloadEnabled(k, false));
-    try {
-      const stereo = buffer.numberOfChannels >= 2;
-      let vocalMono, instrumental;
+    const input =
+      new Float32Array(
+        2 *
+        DEMUCS_SAMPLES
+      );
 
-      if (stereo) {
-        const L = buffer.getChannelData(0);
-        const R = buffer.getChannelData(1);
-        vocalMono = await extractCenterVocal(L, R, buffer.sampleRate, strength, (pct) => {
-          processingLabel.textContent = `Separating vocals… ${pct}%`;
-        });
-        instrumental = audioCtx.createBuffer(2, buffer.length, buffer.sampleRate);
-        const instL = instrumental.getChannelData(0);
-        const instR = instrumental.getChannelData(1);
-        for (let i = 0; i < buffer.length; i++) {
-          instL[i] = L[i] - vocalMono[i];
-          instR[i] = R[i] - vocalMono[i];
-        }
-      } else {
-        processingLabel.textContent = "Isolating vocal range…";
-        vocalMono = buffer.getChannelData(0).slice();
-        instrumental = await renderMonoInstrumentalFallback(buffer);
-      }
+    input.set(
+      mix.left.subarray(
+        start,
+        end
+      ),
+      0
+    );
 
-      processingLabel.textContent = "Finishing up…";
-      const vocalRaw = audioCtx.createBuffer(2, buffer.length, buffer.sampleRate);
-      vocalRaw.copyToChannel(vocalMono, 0);
-      vocalRaw.copyToChannel(vocalMono, 1);
-      const vocals = await renderVocalPolish(vocalRaw);
+    input.set(
+      mix.right.subarray(
+        start,
+        end
+      ),
+      DEMUCS_SAMPLES
+    );
 
-      processingLabel.textContent = "Splitting bass…";
-      const bass = await renderBand(instrumental, "lowpass", CROSSOVER_HZ);
-      processingLabel.textContent = "Splitting the rest…";
-      const other = await renderBand(instrumental, "highpass", CROSSOVER_HZ);
 
-      stemBuffers = { vocals, instrumental, bass, other };
-      if (!graphReady) { setupPlaybackGraph(); graphReady = true; }
-      STEM_KEYS.forEach(k => setDownloadEnabled(k, true));
-      playBtn.disabled = false;
-    } catch (err) {
-      console.error(err);
-      showError("Something went wrong while splitting this track. A shorter file or a different format may help.");
-    } finally {
-      processingStrip.classList.add("hidden");
-    }
-  }
+    const tensor =
+      new ort.Tensor(
+        "float32",
+        input,
+        [
+          1,
+          2,
+          DEMUCS_SAMPLES
+        ]
+      );
 
-  function renderVocalPolish(buffer) {
-    // The real vocal/frequency gating already happened during extraction
-    // (it had to, so the Instrumental stem benefits too). This is just a
-    // gentle cleanup pass to remove any DC offset or sub-sonic rumble.
-    const ctx = new OfflineAudioContext(2, buffer.length, buffer.sampleRate);
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 60;
-    src.connect(hp); hp.connect(ctx.destination);
-    src.start(0);
-    return ctx.startRendering();
-  }
 
-  function renderMonoInstrumentalFallback(buffer) {
-    // No left/right difference to work with on mono audio, so this is a
-    // best-effort dip around the vocal presence range rather than true removal.
-    const ctx = new OfflineAudioContext(1, buffer.length, buffer.sampleRate);
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const notch = ctx.createBiquadFilter();
-    notch.type = "peaking";
-    notch.frequency.value = 1800;
-    notch.Q.value = 0.8;
-    notch.gain.value = -8;
-    src.connect(notch);
-    notch.connect(ctx.destination);
-    src.start(0);
-    return ctx.startRendering();
-  }
-
-  function renderBand(buffer, filterType, freq) {
-    const channels = buffer.numberOfChannels;
-    const ctx = new OfflineAudioContext(channels, buffer.length, buffer.sampleRate);
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const filter = ctx.createBiquadFilter();
-    filter.type = filterType;
-    filter.frequency.value = freq;
-    filter.Q.value = 0.7071;
-    src.connect(filter);
-    filter.connect(ctx.destination);
-    src.start(0);
-    return ctx.startRendering();
-  }
-
-  // ============================================================
-  // Console UI
-  // ============================================================
-  function buildConsole() {
-    consoleEl.innerHTML = STEM_META.map(m => `
-      <div class="strip" data-stem="${m.key}" style="--accent:${m.accent}">
-        <div class="strip-head">
-          <span class="strip-label">${m.label}</span>
-          <span class="strip-tag">${m.tag}</span>
-        </div>
-        <div class="strip-body">
-          <canvas class="meter" data-stem="${m.key}" width="14" height="120"></canvas>
-          <div class="fader-wrap">
-            <input type="range" class="fader" data-stem="${m.key}" min="0" max="1" step="0.01" value="1" aria-label="${m.label} volume">
-          </div>
-        </div>
-        <div class="strip-buttons">
-          <button class="chip mute-btn" data-stem="${m.key}" aria-label="Mute ${m.label}">M</button>
-          <button class="chip solo-btn" data-stem="${m.key}" aria-label="Solo ${m.label}">S</button>
-        </div>
-        <button class="dl-btn" data-stem="${m.key}" disabled>Download</button>
-      </div>
-    `).join("");
-
-    strips = {};
-    STEM_KEYS.forEach(key => {
-      const el = consoleEl.querySelector(`.strip[data-stem="${key}"]`);
-      strips[key] = {
-        el,
-        meter: el.querySelector(".meter"),
-        fader: el.querySelector(".fader"),
-        muteBtn: el.querySelector(".mute-btn"),
-        soloBtn: el.querySelector(".solo-btn"),
-        dlBtn: el.querySelector(".dl-btn")
-      };
-      strips[key].fader.addEventListener("input", (e) => {
-        faderValues[key] = parseFloat(e.target.value);
-        applyGains();
+    const results =
+      await session.run({
+        mix:tensor
       });
-      strips[key].muteBtn.addEventListener("click", () => {
-        muted[key] = !muted[key];
-        strips[key].muteBtn.classList.toggle("active-mute", muted[key]);
-        applyGains();
-      });
-      strips[key].soloBtn.addEventListener("click", () => {
-        soloed = soloed === key ? null : key;
-        STEM_KEYS.forEach(k => strips[k].soloBtn.classList.toggle("active-solo", soloed === k));
-        applyGains();
-      });
-      strips[key].dlBtn.addEventListener("click", () => downloadStem(key));
-    });
-  }
 
-  function setDownloadEnabled(key, enabled) {
-    if (strips[key]) strips[key].dlBtn.disabled = !enabled;
-  }
 
-  // ============================================================
-  // Live playback graph
-  // ============================================================
-  function setupPlaybackGraph() {
-    STEM_KEYS.forEach(key => {
-      const gain = audioCtx.createGain();
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      gain.connect(analyser);
-      analyser.connect(audioCtx.destination);
-      gainNodes[key] = gain;
-      analysers[key] = analyser;
-      analyserData[key] = new Uint8Array(analyser.fftSize);
-    });
-    applyGains();
-  }
+    /*
+      Most exported versions of this model call
+      their output "stems".
 
-  function applyGains() {
-    const anySolo = soloed !== null;
-    STEM_KEYS.forEach(key => {
-      const audible = anySolo ? (key === soloed) : !muted[key];
-      if (gainNodes[key]) gainNodes[key].gain.value = audible ? faderValues[key] : 0;
-      if (strips[key]) strips[key].el.classList.toggle("muted-out", !audible);
-    });
-  }
+      We also fall back to the first output in case
+      the model metadata uses another name.
+    */
 
-  function startPlayback(offset) {
-    STEM_KEYS.forEach(key => {
-      const src = audioCtx.createBufferSource();
-      src.buffer = stemBuffers[key];
-      src.connect(gainNodes[key]);
-      src.start(0, offset);
-      sources[key] = src;
-    });
-    playStartCtxTime = audioCtx.currentTime;
-    playStartOffset = offset;
-    isPlaying = true;
-    playBtn.textContent = "⏸";
-    playBtn.setAttribute("aria-label", "Pause");
-    tick();
-  }
+    const outputName =
+      results.stems
+        ? "stems"
+        : session.outputNames[0];
 
-  function stopSources() {
-    Object.values(sources).forEach(src => { try { src.stop(); } catch (e) {} });
-    sources = {};
-  }
+    const outputTensor =
+      results[outputName];
 
-  function pausePlayback() {
-    if (!isPlaying) return;
-    playStartOffset = getCurrentTime();
-    stopSources();
-    isPlaying = false;
-    playBtn.textContent = "▶";
-    playBtn.setAttribute("aria-label", "Play");
-    if (rafId) cancelAnimationFrame(rafId);
-  }
+    const data =
+      outputTensor.data;
 
-  function getCurrentTime() {
-    if (!isPlaying) return playStartOffset;
-    return playStartOffset + (audioCtx.currentTime - playStartCtxTime);
-  }
 
-  playBtn.addEventListener("click", async () => {
-    if (!stemBuffers) return;
-    if (audioCtx.state === "suspended") await audioCtx.resume();
-    if (isPlaying) {
-      pausePlayback();
-    } else {
-      let offset = playStartOffset;
-      if (offset >= duration - 0.02) offset = 0;
-      startPlayback(offset);
-    }
-  });
+    /*
+      Expected shape:
 
-  waveformWrap.addEventListener("click", (e) => {
-    if (!stemBuffers) return;
-    const rect = waveformWrap.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    seekTo(Math.max(0, Math.min(duration, ratio * duration)));
-  });
+        [1, 4, 2, 343980]
 
-  function seekTo(t) {
-    const wasPlaying = isPlaying;
-    if (isPlaying) stopSources();
-    isPlaying = false;
-    playStartOffset = t;
-    updateTimeReadout(t);
-    drawPlayhead(t);
-    if (wasPlaying) startPlayback(t);
-  }
+      Layout:
 
-  function tick() {
-    if (!isPlaying) return;
-    const t = getCurrentTime();
-    if (t >= duration) {
-      pausePlayback();
-      playStartOffset = 0;
-      updateTimeReadout(0);
-      drawPlayhead(0);
-      drawMetersIdle();
-      return;
-    }
-    updateTimeReadout(t);
-    drawPlayhead(t);
-    drawMeters();
-    rafId = requestAnimationFrame(tick);
-  }
+        drums-left
+        drums-right
+        bass-left
+        bass-right
+        other-left
+        other-right
+        vocals-left
+        vocals-right
+    */
 
-  function formatTime(s) {
-    if (!isFinite(s)) s = 0;
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return m + ":" + String(sec).padStart(2, "0");
-  }
-  function updateTimeReadout(t) {
-    timeReadout.textContent = formatTime(t) + " / " + formatTime(duration);
-  }
+    const channelPlane =
+      DEMUCS_SAMPLES;
 
-  function drawMeters() {
-    STEM_KEYS.forEach(key => {
-      const analyser = analysers[key];
-      const data = analyserData[key];
-      analyser.getByteTimeDomainData(data);
-      let sumSq = 0;
-      for (let i = 0; i < data.length; i++) {
-        const v = (data[i] - 128) / 128;
-        sumSq += v * v;
-      }
-      const rms = Math.sqrt(sumSq / data.length);
-      const level = Math.min(1, rms * 2.4);
-      paintMeter(key, level);
-    });
-  }
-  function drawMetersIdle() {
-    STEM_KEYS.forEach(key => paintMeter(key, 0));
-  }
-  function paintMeter(key, level) {
-    const canvas = strips[key].meter;
-    const c = canvas.getContext("2d");
-    const w = canvas.width, h = canvas.height;
-    c.clearRect(0, 0, w, h);
-    c.fillStyle = "#2A2E37";
-    c.fillRect(0, 0, w, h);
-    const barH = level * h;
-    c.fillStyle = ACCENT_HEX[key];
-    c.fillRect(0, h - barH, w, barH);
-  }
+    const stemPlane =
+      2 *
+      DEMUCS_SAMPLES;
 
-  // ============================================================
-  // Waveform drawing
-  // ============================================================
-  window.addEventListener("resize", () => {
-    if (!originalBuffer) return;
-    resizeWaveformCanvases();
-    drawWaveform();
-  });
 
-  function resizeWaveformCanvases() {
-    const dpr = window.devicePixelRatio || 1;
-    const rect = waveformWrap.getBoundingClientRect();
-    [waveformCanvas, playheadCanvas].forEach(c => {
-      c.width = Math.max(1, Math.floor(rect.width * dpr));
-      c.height = Math.max(1, Math.floor(rect.height * dpr));
-    });
-  }
+    for(
+      let stem=0;
+      stem<4;
+      stem++
+    ){
 
-  function getPeaks(buffer, targetWidth) {
-    const ch0 = buffer.getChannelData(0);
-    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
-    const len = buffer.length;
-    const blockSize = Math.max(1, Math.floor(len / targetWidth));
-    const peaks = [];
-    for (let i = 0; i < targetWidth; i++) {
-      const start = i * blockSize;
-      let min = 1, max = -1;
-      const end = Math.min(start + blockSize, len);
-      for (let j = start; j < end; j++) {
-        const v = ch1 ? (ch0[j] + ch1[j]) / 2 : ch0[j];
-        if (v < min) min = v;
-        if (v > max) max = v;
-      }
-      if (end <= start) { min = 0; max = 0; }
-      peaks.push([min, max]);
-    }
-    return peaks;
-  }
+      const stemBase =
+        stem *
+        stemPlane;
 
-  function drawWaveform() {
-    const dpr = window.devicePixelRatio || 1;
-    const rect = waveformWrap.getBoundingClientRect();
-    const w = Math.max(1, Math.floor(rect.width));
-    const h = rect.height;
-    const ctx2d = waveformCanvas.getContext("2d");
-    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx2d.clearRect(0, 0, w, h);
-    const peaks = getPeaks(originalBuffer, w);
-    const mid = h / 2;
-    ctx2d.fillStyle = "rgba(237,237,237,0.32)";
-    for (let i = 0; i < peaks.length; i++) {
-      const y1 = mid + peaks[i][0] * mid * 0.9;
-      const y2 = mid + peaks[i][1] * mid * 0.9;
-      ctx2d.fillRect(i, y1, 1, Math.max(1, y2 - y1));
-    }
-    waveformReady = true;
-  }
 
-  function drawPlayhead(t) {
-    if (!waveformReady) return;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = waveformWrap.getBoundingClientRect();
-    const w = rect.width, h = rect.height;
-    const ctx2d = playheadCanvas.getContext("2d");
-    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx2d.clearRect(0, 0, w, h);
-    if (!duration) return;
-    const x = (t / duration) * w;
-    ctx2d.fillStyle = "rgba(232,166,61,0.9)";
-    ctx2d.fillRect(x, 0, 1.5, h);
-  }
+      for(
+        let channel=0;
+        channel<2;
+        channel++
+      ){
 
-  // ============================================================
-  // WAV export
-  // ============================================================
-  function audioBufferToWav(buffer) {
-    const numChannels = buffer.numberOfChannels;
-    const sampleRate = buffer.sampleRate;
-    const bitDepth = 16;
-    const bytesPerSample = bitDepth / 8;
-    const blockAlign = numChannels * bytesPerSample;
-    const dataLength = buffer.length * blockAlign;
-    const arrayBuffer = new ArrayBuffer(44 + dataLength);
-    const view = new DataView(arrayBuffer);
+        const channelBase =
+          stemBase +
+          channel *
+          channelPlane;
 
-    writeStr(view, 0, "RIFF");
-    view.setUint32(4, 36 + dataLength, true);
-    writeStr(view, 8, "WAVE");
-    writeStr(view, 12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // PCM
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * blockAlign, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitDepth, true);
-    writeStr(view, 36, "data");
-    view.setUint32(40, dataLength, true);
+        const destination =
+          outputs[stem][channel];
 
-    const channelData = [];
-    for (let ch = 0; ch < numChannels; ch++) channelData.push(buffer.getChannelData(ch));
 
-    let offset = 44;
-    for (let i = 0; i < buffer.length; i++) {
-      for (let ch = 0; ch < numChannels; ch++) {
-        let sample = Math.max(-1, Math.min(1, channelData[ch][i]));
-        sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-        view.setInt16(offset, sample, true);
-        offset += 2;
+        for(
+          let i=0;
+          i<length;
+          i++
+        ){
+
+          destination[
+            start + i
+          ] +=
+            data[
+              channelBase + i
+            ] *
+            window[i];
+        }
       }
     }
-    return new Blob([view], { type: "audio/wav" });
-  }
-  function writeStr(view, offset, str) {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+
+
+    /*
+      Add the same crossfade weights to the
+      normalization buffer.
+    */
+
+    for(
+      let i=0;
+      i<length;
+      i++
+    ){
+
+      weights[
+        start + i
+      ] += window[i];
+    }
+
+
+    const percent =
+      10 +
+      (
+        chunkIndex + 1
+      ) /
+      chunkCount *
+      82;
+
+    setStatus(
+      "HTDemucs: chunk " +
+      (chunkIndex + 1) +
+      " / " +
+      chunkCount,
+      percent
+    );
+
+
+    /*
+      Let the browser repaint between inference calls.
+    */
+
+    await new Promise(
+      resolve =>
+        setTimeout(
+          resolve,
+          0
+        )
+    );
   }
 
-  function downloadStem(key) {
-    if (!stemBuffers || !stemBuffers[key]) return;
-    const blob = audioBufferToWav(stemBuffers[key]);
-    const url = URL.createObjectURL(blob);
-    const base = (trackNameEl.textContent || "track").replace(/\.[^.]+$/, "");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${base} - ${key}.wav`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+  /*
+    Normalize the overlap-add result.
+  */
+
+  setStatus(
+    "Reconstructing stems…",
+    94
+  );
+
+
+  for(
+    let stem=0;
+    stem<4;
+    stem++
+  ){
+
+    for(
+      let channel=0;
+      channel<2;
+      channel++
+    ){
+
+      const buffer =
+        outputs[stem][channel];
+
+      for(
+        let i=0;
+        i<totalSamples;
+        i++
+      ){
+
+        buffer[i] /=
+          Math.max(
+            weights[i],
+            0.000001
+          );
+      }
+    }
   }
 
-})();
+
+  /*
+    Convert the four model outputs into WAV blobs.
+  */
+
+  const stems = {
+
+    drums:
+      makeStereoWav(
+        outputs[0][0],
+        outputs[0][1]
+      ),
+
+    bass:
+      makeStereoWav(
+        outputs[1][0],
+        outputs[1][1]
+      ),
+
+    other:
+      makeStereoWav(
+        outputs[2][0],
+        outputs[2][1]
+      ),
+
+    vocals:
+      makeStereoWav(
+        outputs[3][0],
+        outputs[3][1]
+      )
+  };
+
+
+  setStatus(
+    "Building stem players…",
+    98
+  );
+
+
+  renderResults(
+    stems,
+    true
+  );
+
+
+  setStatus(
+    "HTDemucs separation complete.",
+    100
+  );
+}
+
+
+/* ============================================================
+   CROSSFADE WINDOW
+   ============================================================ */
+
+function createCrossfadeWindow(){
+
+  const window =
+    new Float32Array(
+      DEMUCS_SAMPLES
+    );
+
+  /*
+    Use the overlap amount for the fades.
+
+    The middle stays at 1.
+  */
+
+  const fade =
+    DEMUCS_OVERLAP;
+
+
+  for(
+    let i=0;
+    i<DEMUCS_SAMPLES;
+    i++
+  ){
+
+    let value=1;
+
+    if(i < fade){
+
+      value =
+        i /
+        fade;
+    }
+
+    const fromEnd =
+      DEMUCS_SAMPLES -
+      i -
+      1;
+
+    if(fromEnd < fade){
+
+      value =
+        Math.min(
+          value,
+          fromEnd /
+          fade
+        );
+    }
+
+    /*
+      Avoid exactly-zero weights.
+    */
+
+    window[i] =
+      Math.max(
+        value,
+        0.0001
+      );
+  }
+
+  return window;
+}
+
+
+/* ============================================================
+   RESULT UI
+   ============================================================ */
+
+function renderResults(
+  stems,
+  ai
+){
+
+  clearResultsOnly();
+
+  const definitions =
+    ai
+
+      ? [
+          {
+            key:"vocals",
+            title:"Vocals",
+            tag:"HTDemucs stem",
+            color:"var(--green)"
+          },
+
+          {
+            key:"drums",
+            title:"Drums",
+            tag:"HTDemucs stem",
+            color:"var(--accent)"
+          },
+
+          {
+            key:"bass",
+            title:"Bass",
+            tag:"HTDemucs stem",
+            color:"var(--red)"
+          },
+
+          {
+            key:"other",
+            title:"Other",
+            tag:"HTDemucs stem",
+            color:"var(--blue)"
+          }
+        ]
+
+      : [
+          {
+            key:"vocals",
+            title:"Vocals",
+            tag:"Center isolate",
+            color:"var(--green)"
+          },
+
+          {
+            key:"instrumental",
+            title:"Instrumental",
+            tag:"Vocal removed",
+            color:"var(--accent)"
+          },
+
+          {
+            key:"bass",
+            title:"Bass",
+            tag:"Low-frequency split",
+            color:"var(--red)"
+          },
+
+          {
+            key:"other",
+            title:"Other",
+            tag:"Remaining audio",
+            color:"var(--blue)"
+          }
+        ];
+
+
+  definitions.forEach(
+    definition => {
+
+      const blob =
+        stems[
+          definition.key
+        ];
+
+      if(!blob){
+        return;
+      }
+
+      const url =
+        URL.createObjectURL(
+          blob
+        );
+
+      generatedUrls.push(
+        url
+      );
+
+
+      const track =
+        document.createElement(
+          "div"
+        );
+
+      track.className =
+        "track";
+
+      track.style
+        .setProperty(
+          "--track-color",
+          definition.color
+        );
+
+
+      const title =
+        document.createElement(
+          "div"
+        );
+
+      title.className =
+        "track-title";
+
+      title.textContent =
+        definition.title;
+
+
+      const tag =
+        document.createElement(
+          "div"
+        );
+
+      tag.className =
+        "track-tag";
+
+      tag.textContent =
+        definition.tag;
+
+
+      const player =
+        document.createElement(
+          "audio"
+        );
+
+      player.controls = true;
+      player.preload = "metadata";
+      player.src = url;
+
+
+      const download =
+        document.createElement(
+          "button"
+        );
+
+      download.type =
+        "button";
+
+      download.textContent =
+        "Download WAV";
+
+
+      download.addEventListener(
+        "click",
+        () => {
+
+          const link =
+            document.createElement(
+              "a"
+            );
+
+          link.href =
+            url;
+
+          link.download =
+            createStemFilename(
+              definition.key
+            );
+
+          document.body
+            .appendChild(
+              link
+            );
+
+          link.click();
+
+          link.remove();
+        }
+      );
+
+
+      track.appendChild(
+        title
+      );
+
+      track.appendChild(
+        tag
+      );
+
+      track.appendChild(
+        player
+      );
+
+      track.appendChild(
+        download
+      );
+
+
+      trackList.appendChild(
+        track
+      );
+
+
+      /*
+        Use vocals as the main preview.
+      */
+
+      if(
+        definition.key === "vocals"
+      ){
+
+        masterPlayer.src =
+          url;
+      }
+
+    }
+  );
+}
+
+
+/* ============================================================
+   FILENAME
+   ============================================================ */
+
+function createStemFilename(
+  stem
+){
+
+  const original =
+    currentFile
+      ? currentFile.name
+      : "track";
+
+  const base =
+    original.replace(
+      /\.[^/.]+$/,
+      ""
+    );
+
+  return (
+    base +
+    " - " +
+    stem +
+    ".wav"
+  );
+}
+
+
+/* ============================================================
+   WAV ENCODER
+   ============================================================ */
+
+function makeStereoWav(
+  left,
+  right
+){
+
+  const samples =
+    Math.min(
+      left.length,
+      right.length
+    );
+
+  const bytesPerSample=2;
+
+  const channels=2;
+
+  const dataSize =
+    samples *
+    channels *
+    bytesPerSample;
+
+  const buffer =
+    new ArrayBuffer(
+      44 +
+      dataSize
+    );
+
+  const view =
+    new DataView(
+      buffer
+    );
+
+
+  writeString(
+    view,
+    0,
+    "RIFF"
+  );
+
+  view.setUint32(
+    4,
+    36 + dataSize,
+    true
+  );
+
+  writeString(
+    view,
+    8,
+    "WAVE"
+  );
+
+  writeString(
+    view,
+    12,
+    "fmt "
+  );
+
+  view.setUint32(
+    16,
+    16,
+    true
+  );
+
+  /*
+    PCM
+  */
+
+  view.setUint16(
+    20,
+    1,
+    true
+  );
+
+  view.setUint16(
+    22,
+    channels,
+    true
+  );
+
+  view.setUint32(
+    24,
+    TARGET_SAMPLE_RATE,
+    true
+  );
+
+  view.setUint32(
+    28,
+    TARGET_SAMPLE_RATE *
+    channels *
+    bytesPerSample,
+    true
+  );
+
+  view.setUint16(
+    32,
+    channels *
+    bytesPerSample,
+    true
+  );
+
+  view.setUint16(
+    34,
+    16,
+    true
+  );
+
+  writeString(
+    view,
+    36,
+    "data"
+  );
+
+  view.setUint32(
+    40,
+    dataSize,
+    true
+  );
+
+
+  let offset=44;
+
+
+  for(
+    let i=0;
+    i<samples;
+    i++
+  ){
+
+    let l =
+      left[i];
+
+    let r =
+      right[i];
+
+
+    /*
+      Prevent invalid PCM values.
+    */
+
+    l =
+      Math.max(
+        -1,
+        Math.min(
+          1,
+          l
+        )
+      );
+
+    r =
+      Math.max(
+        -1,
+        Math.min(
+          1,
+          r
+        )
+      );
+
+
+    const li =
+      l < 0
+        ? l * 32768
+        : l * 32767;
+
+    const ri =
+      r < 0
+        ? r * 32768
+        : r * 32767;
+
+
+    view.setInt16(
+      offset,
+      li,
+      true
+    );
+
+    offset += 2;
+
+
+    view.setInt16(
+      offset,
+      ri,
+      true
+    );
+
+    offset += 2;
+  }
+
+
+  return new Blob(
+    [buffer],
+    {
+      type:"audio/wav"
+    }
+  );
+}
+
+
+function writeString(
+  view,
+  offset,
+  string
+){
+
+  for(
+    let i=0;
+    i<string.length;
+    i++
+  ){
+
+    view.setUint8(
+      offset+i,
+      string.charCodeAt(i)
+    );
+  }
+}
+
+
+/* ============================================================
+   CLEAR RESULTS
+   ============================================================ */
+
+function clearResultsOnly(){
+
+  trackList.innerHTML = "";
+
+  masterPlayer.pause();
+
+  masterPlayer.removeAttribute(
+    "src"
+  );
+
+  masterPlayer.load();
+}
+
+
+function clearResults(){
+
+  generatedUrls.forEach(
+    url => {
+
+      try{
+        URL.revokeObjectURL(
+          url
+        );
+      }catch(_){}
+    }
+  );
+
+  generatedUrls=[];
+
+  clearResultsOnly();
+
+  results.hidden=true;
+
+  progressFill.style.width =
+    "0%";
+
+  fileInfo.textContent="";
+}
+
+
+/* ============================================================
+   ERROR HANDLING
+   ============================================================ */
+
+function handleError(error){
+
+  console.error(
+    "Fourtrack error:",
+    error
+  );
+
+  setStatus(
+    "Error: " +
+    (
+      error &&
+      error.message
+        ? error.message
+        : String(error)
+    ),
+    0
+  );
+}
+
+
+/* ============================================================
+   UTILITY
+   ============================================================ */
+
+function formatBytes(
+  bytes
+){
+
+  if(bytes < 1024){
+    return bytes + " B";
+  }
+
+  if(bytes < 1024*1024){
+
+    return (
+      (bytes/1024)
+        .toFixed(1) +
+      " KB"
+    );
+  }
+
+  return (
+    (bytes/1024/1024)
+      .toFixed(1) +
+    " MB"
+  );
+}
+
+
+/* ============================================================
+   INITIAL STATE
+   ============================================================ */
+
+setMode("dsp");
+
 </script>
+
 </body>
 </html>
