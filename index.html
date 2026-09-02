@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0,
+               maximum-scale=1.0,
+               viewport-fit=cover">
 
-<title>Fourtrack — HTDemucs Stem Splitter</title>
+<title>Fourtrack — HTDemucs AI Stem Splitter</title>
 
-<!-- ONNX Runtime Web -->
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
 
 <style>
@@ -43,6 +45,10 @@ html,body{
     sans-serif;
 }
 
+body{
+  -webkit-text-size-adjust:100%;
+}
+
 button,
 input{
   font:inherit;
@@ -53,8 +59,9 @@ button{
   background:var(--panel-raised);
   color:var(--text);
   border-radius:8px;
-  padding:9px 13px;
+  padding:10px 14px;
   cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
 }
 
 button:hover{
@@ -69,7 +76,10 @@ button:disabled{
 .app{
   width:min(1100px,100%);
   margin:auto;
-  padding:30px 18px 60px;
+  padding:
+    30px
+    18px
+    calc(60px + env(safe-area-inset-bottom));
 }
 
 .header{
@@ -95,22 +105,16 @@ button:disabled{
   margin-top:15px;
 }
 
-.mode-row{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  margin-bottom:15px;
-}
-
-.mode-btn{
-  padding:9px 14px;
-}
-
-.mode-btn.active{
-  background:var(--accent);
-  color:#15120D;
-  border-color:var(--accent);
+.ai-badge{
+  display:inline-block;
+  padding:6px 9px;
+  border-radius:7px;
+  background:rgba(229,161,59,.12);
+  border:1px solid rgba(229,161,59,.3);
+  color:var(--accent);
+  font-size:12px;
   font-weight:700;
+  margin-bottom:12px;
 }
 
 .mode-note{
@@ -132,14 +136,21 @@ button:disabled{
   background:#222018;
 }
 
+.drop-zone.busy{
+  pointer-events:none;
+  opacity:.7;
+}
+
 .drop-title{
   font-size:18px;
   font-weight:700;
+  margin-top:14px;
 }
 
 .drop-sub{
   color:var(--muted);
   margin-top:7px;
+  line-height:1.5;
 }
 
 .primary{
@@ -149,10 +160,18 @@ button:disabled{
   font-weight:700;
 }
 
+.cancel{
+  background:transparent;
+  border-color:var(--red);
+  color:#E88984;
+  margin-left:8px;
+}
+
 .status{
   min-height:22px;
   margin-top:15px;
   color:var(--muted);
+  line-height:1.45;
 }
 
 .progress{
@@ -174,6 +193,7 @@ button:disabled{
   margin-top:12px;
   color:var(--muted);
   font-size:13px;
+  word-break:break-word;
 }
 
 .track-list{
@@ -235,6 +255,14 @@ button:disabled{
   color:#D9B56E;
 }
 
+.error{
+  color:#E88984;
+}
+
+.success{
+  color:#71CBAE;
+}
+
 @media(max-width:800px){
   .track-list{
     grid-template-columns:repeat(2,1fr);
@@ -243,11 +271,20 @@ button:disabled{
 
 @media(max-width:480px){
   .app{
-    padding:20px 12px 45px;
+    padding:
+      20px
+      12px
+      calc(45px + env(safe-area-inset-bottom));
   }
 
   .track-list{
     grid-template-columns:1fr;
+  }
+
+  .cancel{
+    margin-left:0;
+    margin-top:8px;
+    width:100%;
   }
 }
 </style>
@@ -259,32 +296,23 @@ button:disabled{
 
   <header class="header">
     <h1>Fourtrack</h1>
-    <p>Browser-based music stem separation with HTDemucs.</p>
+    <p>Browser-based music stem separation with HTDemucs AI.</p>
   </header>
 
   <section class="card">
 
-    <div class="mode-row">
-      <button
-        class="mode-btn active"
-        id="dspMode"
-        type="button">
-        Built-in — instant
-      </button>
-
-      <button
-        class="mode-btn"
-        id="aiMode"
-        type="button">
-        HTDemucs AI — accurate
-      </button>
+    <div class="ai-badge">
+      HTDEMUCS AI
     </div>
 
-    <div id="modeNote" class="mode-note">
-      Fast stereo DSP separation. No model download required.
+    <div class="mode-note">
+      Fourtrack uses a neural HTDemucs model to separate
+      your audio into vocals, drums, bass and other.
+      Processing happens locally in your browser.
     </div>
 
   </section>
+
 
   <section class="card">
 
@@ -310,7 +338,8 @@ button:disabled{
       </div>
 
       <div class="drop-sub">
-        MP3, WAV, M4A, OGG, FLAC and other browser-supported formats
+        MP3, WAV, M4A, OGG, FLAC and other
+        browser-supported formats
       </div>
 
     </div>
@@ -328,7 +357,18 @@ button:disabled{
 
     <div id="fileInfo" class="file-info"></div>
 
+    <div style="margin-top:12px;">
+      <button
+        id="cancelButton"
+        class="cancel"
+        type="button"
+        hidden>
+        Cancel
+      </button>
+    </div>
+
   </section>
+
 
   <section
     id="results"
@@ -345,6 +385,7 @@ button:disabled{
     </div>
 
     <div class="master">
+
       <div class="section-title">
         Preview
       </div>
@@ -353,34 +394,38 @@ button:disabled{
         id="masterPlayer"
         controls>
       </audio>
+
     </div>
 
   </section>
 
+
   <section class="card small">
 
-    <strong>HTDemucs browser engine</strong>
+    <strong>HTDemucs AI browser engine</strong>
 
     <p>
-      The AI mode uses an HTDemucs ONNX model through
-      ONNX Runtime Web. The model expects stereo 44.1 kHz audio
-      in 343,980-sample chunks. Longer songs are processed with
-      overlapping chunks and overlap-add reconstruction.
+      Fourtrack runs HTDemucs through ONNX Runtime Web.
+      Audio is converted to stereo 44.1 kHz before inference.
+      The model processes 343,980-sample chunks with overlapping
+      reconstruction.
     </p>
 
     <p class="warn">
-      HTDemucs is much more demanding than the built-in DSP mode.
-      The first AI run downloads roughly 166 MB of model data,
-      and longer songs can require a large amount of RAM.
-      Shorter tracks are recommended on iPad/mobile devices.
+      The AI model is large and browser inference is demanding.
+      The first run downloads roughly 166 MB of model data.
+      Longer tracks require considerably more RAM, especially
+      on iPad and iPhone.
     </p>
 
   </section>
 
 </div>
 
+
 <script>
 "use strict";
+
 
 /* ============================================================
    CONFIGURATION
@@ -392,20 +437,16 @@ const MODEL_URL =
 const TARGET_SAMPLE_RATE = 44100;
 
 /*
-  HTDemucs ONNX input:
-  [1, 2, 343980]
+  HTDemucs input size.
 */
 const DEMUCS_SAMPLES = 343980;
 
 /*
+  Reference HTDemucs implementation:
   25% overlap.
-
-  This gives each chunk some shared context with the
-  neighbouring chunk while keeping the number of
-  inference calls reasonable.
 */
 const DEMUCS_OVERLAP =
-  Math.floor(DEMUCS_SAMPLES * 0.25);
+  Math.floor(DEMUCS_SAMPLES / 4);
 
 const DEMUCS_HOP =
   DEMUCS_SAMPLES - DEMUCS_OVERLAP;
@@ -442,21 +483,13 @@ const trackList =
 const masterPlayer =
   document.getElementById("masterPlayer");
 
-const dspMode =
-  document.getElementById("dspMode");
-
-const aiMode =
-  document.getElementById("aiMode");
-
-const modeNote =
-  document.getElementById("modeNote");
+const cancelButton =
+  document.getElementById("cancelButton");
 
 
 /* ============================================================
    STATE
    ============================================================ */
-
-let selectedMode = "dsp";
 
 let ortSession = null;
 
@@ -468,18 +501,33 @@ let generatedUrls = [];
 
 let cancelRequested = false;
 
+let processing = false;
+
 
 /* ============================================================
-   UI HELPERS
+   UI
    ============================================================ */
 
-function setStatus(text, percent=null){
+function setStatus(
+  text,
+  percent = null,
+  type = ""
+){
 
-  statusElement.textContent = text;
+  statusElement.textContent =
+    text;
+
+  statusElement.className =
+    "status" +
+    (
+      type
+        ? " " + type
+        : ""
+    );
 
   if(percent !== null){
 
-    percent =
+    const safePercent =
       Math.max(
         0,
         Math.min(
@@ -489,79 +537,65 @@ function setStatus(text, percent=null){
       );
 
     progressFill.style.width =
-      percent + "%";
+      safePercent + "%";
   }
 }
 
 
-function setMode(mode){
+function setBusy(
+  busy
+){
 
-  selectedMode = mode;
+  processing =
+    busy;
 
-  if(mode === "ai"){
+  chooseButton.disabled =
+    busy;
 
-    aiMode.classList.add("active");
-    dspMode.classList.remove("active");
+  dropZone.classList.toggle(
+    "busy",
+    busy
+  );
 
-    modeNote.textContent =
-      "HTDemucs AI separation. " +
-      "Runs locally in your browser after the model is loaded.";
-
-  }else{
-
-    dspMode.classList.add("active");
-    aiMode.classList.remove("active");
-
-    modeNote.textContent =
-      "Fast stereo DSP separation. " +
-      "No model download required.";
-  }
-
-  /*
-    If audio is already loaded, immediately rerun it.
-  */
-  if(currentMix){
-
-    processCurrentAudio().catch(handleError);
-  }
+  cancelButton.hidden =
+    !busy;
 }
 
 
 /* ============================================================
-   MODE BUTTONS
-   ============================================================ */
-
-dspMode.addEventListener(
-  "click",
-  () => setMode("dsp")
-);
-
-aiMode.addEventListener(
-  "click",
-  () => setMode("ai")
-);
-
-
-/* ============================================================
-   FILE INPUT
+   FILE SELECTION
    ============================================================ */
 
 chooseButton.addEventListener(
   "click",
-  () => fileInput.click()
+  event => {
+
+    event.stopPropagation();
+
+    if(!processing){
+      fileInput.click();
+    }
+  }
 );
+
 
 dropZone.addEventListener(
   "click",
   event => {
 
-    if(event.target === chooseButton){
+    if(
+      event.target ===
+      chooseButton
+    ){
       return;
     }
 
-    fileInput.click();
+    if(!processing){
+      fileInput.click();
+    }
   }
 );
+
 
 fileInput.addEventListener(
   "change",
@@ -582,7 +616,10 @@ fileInput.addEventListener(
    DRAG & DROP
    ============================================================ */
 
-["dragenter","dragover"].forEach(
+[
+  "dragenter",
+  "dragover"
+].forEach(
   eventName => {
 
     dropZone.addEventListener(
@@ -590,6 +627,10 @@ fileInput.addEventListener(
       event => {
 
         event.preventDefault();
+
+        if(processing){
+          return;
+        }
 
         dropZone.classList.add(
           "dragging"
@@ -601,7 +642,10 @@ fileInput.addEventListener(
 );
 
 
-["dragleave","drop"].forEach(
+[
+  "dragleave",
+  "drop"
+].forEach(
   eventName => {
 
     dropZone.addEventListener(
@@ -624,6 +668,10 @@ dropZone.addEventListener(
   "drop",
   event => {
 
+    if(processing){
+      return;
+    }
+
     const file =
       event.dataTransfer.files &&
       event.dataTransfer.files[0];
@@ -636,21 +684,51 @@ dropZone.addEventListener(
 
 
 /* ============================================================
+   CANCEL
+   ============================================================ */
+
+cancelButton.addEventListener(
+  "click",
+  () => {
+
+    cancelRequested =
+      true;
+
+    setStatus(
+      "Cancelling after the current AI operation…",
+      null
+    );
+  }
+);
+
+
+/* ============================================================
    LOAD AUDIO
    ============================================================ */
 
 async function loadAudioFile(file){
 
-  cancelRequested = false;
+  if(processing){
+    return;
+  }
 
-  currentFile = file;
+  cancelRequested =
+    false;
+
+  currentFile =
+    file;
+
+  currentMix =
+    null;
 
   clearResults();
+
+  setBusy(true);
 
   try{
 
     setStatus(
-      "Decoding audio…",
+      "Reading audio…",
       2
     );
 
@@ -659,12 +737,30 @@ async function loadAudioFile(file){
       " • " +
       formatBytes(file.size);
 
+
+    /*
+      Read the file into memory.
+    */
+
     const arrayBuffer =
       await file.arrayBuffer();
+
+
+    if(cancelRequested){
+      throw new CancelledError();
+    }
+
+
+    setStatus(
+      "Decoding audio…",
+      4
+    );
+
 
     const AudioContextClass =
       window.AudioContext ||
       window.webkitAudioContext;
+
 
     if(!AudioContextClass){
 
@@ -673,50 +769,117 @@ async function loadAudioFile(file){
       );
     }
 
+
     const audioContext =
       new AudioContextClass();
 
-    const decoded =
-      await audioContext.decodeAudioData(
-        arrayBuffer
-      );
 
-    await audioContext.close();
+    let decoded;
+
+    try{
+
+      decoded =
+        await audioContext.decodeAudioData(
+          arrayBuffer
+        );
+
+    }finally{
+
+      try{
+        await audioContext.close();
+      }catch(_){}
+
+    }
+
+
+    /*
+      Release the original ArrayBuffer reference.
+    */
+
+    // The browser garbage collector can reclaim it.
+
+
+    if(cancelRequested){
+      throw new CancelledError();
+    }
+
 
     setStatus(
-      "Preparing stereo 44.1 kHz audio…",
-      5
+      "Converting to stereo 44.1 kHz…",
+      6
     );
+
 
     currentMix =
       await prepareStereo44100(
         decoded
       );
 
-    results.hidden = false;
 
-    await processCurrentAudio();
+    /*
+      Do not retain the AudioBuffer after conversion.
+    */
+
+    decoded =
+      null;
+
+
+    if(cancelRequested){
+      throw new CancelledError();
+    }
+
+
+    results.hidden =
+      true;
+
+
+    await runHTDemucs(
+      currentMix
+    );
+
 
   }catch(error){
 
-    handleError(error);
+    if(
+      error instanceof
+      CancelledError
+    ){
+
+      clearResults();
+
+      setStatus(
+        "Separation cancelled.",
+        0
+      );
+
+    }else{
+
+      handleError(error);
+    }
+
+  }finally{
+
+    setBusy(false);
   }
 }
 
 
 /* ============================================================
-   RESAMPLING
+   AUDIO CONVERSION
    ============================================================ */
 
-async function prepareStereo44100(buffer){
+async function prepareStereo44100(
+  buffer
+){
 
   /*
-    If already stereo 44.1 kHz,
-    avoid another conversion.
+    If the source is already stereo 44.1 kHz,
+    copy it directly.
   */
 
   if(
-    buffer.sampleRate === TARGET_SAMPLE_RATE &&
+    buffer.sampleRate ===
+      TARGET_SAMPLE_RATE &&
     buffer.numberOfChannels >= 2
   ){
 
@@ -738,37 +901,31 @@ async function prepareStereo44100(buffer){
   }
 
 
-  /*
-    Use OfflineAudioContext to let the browser perform
-    high-quality sample-rate conversion.
-  */
-
   const targetLength =
-    Math.ceil(
-      buffer.duration *
-      TARGET_SAMPLE_RATE
+    Math.max(
+      1,
+      Math.ceil(
+        buffer.duration *
+        TARGET_SAMPLE_RATE
+      )
     );
+
 
   const OfflineContext =
     window.OfflineAudioContext ||
     window.webkitOfflineAudioContext;
 
+
   if(!OfflineContext){
-
-    /*
-      Fallback for browsers without OfflineAudioContext.
-    */
-
-    const channels =
-      buffer.numberOfChannels;
 
     const sourceLeft =
       buffer.getChannelData(0);
 
     const sourceRight =
-      channels > 1
+      buffer.numberOfChannels > 1
         ? buffer.getChannelData(1)
         : sourceLeft;
+
 
     const result =
       linearResampleStereo(
@@ -778,10 +935,17 @@ async function prepareStereo44100(buffer){
         TARGET_SAMPLE_RATE
       );
 
+
     return {
-      left:result.left,
-      right:result.right,
-      sampleRate:TARGET_SAMPLE_RATE
+
+      left:
+        result.left,
+
+      right:
+        result.right,
+
+      sampleRate:
+        TARGET_SAMPLE_RATE
     };
   }
 
@@ -793,31 +957,44 @@ async function prepareStereo44100(buffer){
       TARGET_SAMPLE_RATE
     );
 
+
   const source =
     offline.createBufferSource();
 
-  source.buffer = buffer;
+
+  source.buffer =
+    buffer;
+
 
   source.connect(
     offline.destination
   );
 
+
   source.start(0);
+
 
   const rendered =
     await offline.startRendering();
 
+
+  const left =
+    new Float32Array(
+      rendered.getChannelData(0)
+    );
+
+
+  const right =
+    new Float32Array(
+      rendered.getChannelData(1)
+    );
+
+
   return {
 
-    left:
-      new Float32Array(
-        rendered.getChannelData(0)
-      ),
+    left,
 
-    right:
-      new Float32Array(
-        rendered.getChannelData(1)
-      ),
+    right,
 
     sampleRate:
       TARGET_SAMPLE_RATE
@@ -826,7 +1003,7 @@ async function prepareStereo44100(buffer){
 
 
 /* ============================================================
-   SIMPLE RESAMPLER FALLBACK
+   RESAMPLER FALLBACK
    ============================================================ */
 
 function linearResampleStereo(
@@ -846,6 +1023,7 @@ function linearResampleStereo(
       )
     );
 
+
   const outputLeft =
     new Float32Array(
       outputLength
@@ -856,9 +1034,11 @@ function linearResampleStereo(
       outputLength
     );
 
+
   const ratio =
     inputRate /
     outputRate;
+
 
   for(
     let i=0;
@@ -869,11 +1049,14 @@ function linearResampleStereo(
     const position =
       i * ratio;
 
+
     const index =
       Math.floor(position);
 
+
     const fraction =
       position - index;
+
 
     const i0 =
       Math.min(
@@ -881,11 +1064,13 @@ function linearResampleStereo(
         left.length - 1
       );
 
+
     const i1 =
       Math.min(
         index + 1,
         left.length - 1
       );
+
 
     outputLeft[i] =
       left[i0] +
@@ -894,6 +1079,7 @@ function linearResampleStereo(
         left[i0]
       ) *
       fraction;
+
 
     outputRight[i] =
       right[i0] +
@@ -904,234 +1090,20 @@ function linearResampleStereo(
       fraction;
   }
 
+
   return {
-    left:outputLeft,
-    right:outputRight
+
+    left:
+      outputLeft,
+
+    right:
+      outputRight
   };
 }
 
 
 /* ============================================================
-   PROCESS CURRENT AUDIO
-   ============================================================ */
-
-async function processCurrentAudio(){
-
-  if(!currentMix){
-    return;
-  }
-
-  cancelRequested = false;
-
-  if(selectedMode === "ai"){
-
-    await runHTDemucs(
-      currentMix
-    );
-
-  }else{
-
-    await runDSP(
-      currentMix
-    );
-  }
-}
-
-
-/* ============================================================
-   BUILT-IN DSP MODE
-   ============================================================ */
-
-/*
-  This is intentionally separate from the HTDemucs engine.
-
-  It provides a fast fallback and does not use the AI model.
-*/
-
-async function runDSP(mix){
-
-  setStatus(
-    "Running built-in DSP separation…",
-    10
-  );
-
-  await new Promise(
-    resolve => setTimeout(
-      resolve,
-      30
-    )
-  );
-
-  const length =
-    mix.left.length;
-
-  const vocalsLeft =
-    new Float32Array(length);
-
-  const vocalsRight =
-    new Float32Array(length);
-
-  const instrumentalLeft =
-    new Float32Array(length);
-
-  const instrumentalRight =
-    new Float32Array(length);
-
-  /*
-    Basic center-channel extraction.
-
-    Center information is approximately:
-
-      (L + R) / 2
-
-    This works reasonably for some stereo mixes,
-    but it is NOT equivalent to Demucs.
-  */
-
-  for(
-    let i=0;
-    i<length;
-    i++
-  ){
-
-    const l =
-      mix.left[i];
-
-    const r =
-      mix.right[i];
-
-    const center =
-      (l + r) * 0.5;
-
-    vocalsLeft[i] =
-      center;
-
-    vocalsRight[i] =
-      center;
-
-    instrumentalLeft[i] =
-      l - center;
-
-    instrumentalRight[i] =
-      r - center;
-  }
-
-  /*
-    Very simple bass/other split.
-
-    This is deliberately lightweight rather than pretending
-    it is neural separation.
-  */
-
-  const bassLeft =
-    new Float32Array(length);
-
-  const bassRight =
-    new Float32Array(length);
-
-  const otherLeft =
-    new Float32Array(length);
-
-  const otherRight =
-    new Float32Array(length);
-
-  /*
-    One-pole low-pass around ~180 Hz.
-
-    coefficient approximation for the sample rate.
-  */
-
-  const cutoff =
-    180;
-
-  const alpha =
-    Math.exp(
-      -2 *
-      Math.PI *
-      cutoff /
-      TARGET_SAMPLE_RATE
-    );
-
-  let bassL=0;
-  let bassR=0;
-
-  for(
-    let i=0;
-    i<length;
-    i++
-  ){
-
-    bassL =
-      alpha * bassL +
-      (1-alpha) *
-      instrumentalLeft[i];
-
-    bassR =
-      alpha * bassR +
-      (1-alpha) *
-      instrumentalRight[i];
-
-    bassLeft[i] =
-      bassL;
-
-    bassRight[i] =
-      bassR;
-
-    otherLeft[i] =
-      instrumentalLeft[i] -
-      bassL;
-
-    otherRight[i] =
-      instrumentalRight[i] -
-      bassR;
-  }
-
-  setStatus(
-    "Rendering DSP stems…",
-    90
-  );
-
-  const stems = {
-
-    vocals:
-      makeStereoWav(
-        vocalsLeft,
-        vocalsRight
-      ),
-
-    instrumental:
-      makeStereoWav(
-        instrumentalLeft,
-        instrumentalRight
-      ),
-
-    bass:
-      makeStereoWav(
-        bassLeft,
-        bassRight
-      ),
-
-    other:
-      makeStereoWav(
-        otherLeft,
-        otherRight
-      )
-  };
-
-  renderResults(
-    stems,
-    false
-  );
-
-  setStatus(
-    "DSP separation complete.",
-    100
-  );
-}
-
-
-/* ============================================================
-   HTDEMUCS SESSION
+   ONNX RUNTIME
    ============================================================ */
 
 async function getHTDemucsSession(){
@@ -1140,34 +1112,34 @@ async function getHTDemucsSession(){
     return ortSession;
   }
 
+
   setStatus(
-    "Loading HTDemucs model (~166 MB)…",
-    6
+    "Loading HTDemucs AI model (~166 MB)…",
+    8
   );
 
-  /*
-    Point ONNX Runtime at its WASM files.
 
-    WASM is used because it is considerably more broadly
-    compatible than assuming WebGPU support.
+  /*
+    WASM binaries are loaded from jsDelivr.
   */
 
   ort.env.wasm.wasmPaths =
     "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/";
 
-  /*
-    Keep the thread count conservative.
 
-    This is particularly important on iPad/mobile devices.
+  /*
+    One thread is deliberately used here.
+
+    This reduces memory pressure on iPad/iPhone.
   */
 
   ort.env.wasm.numThreads =
-    Math.min(
-      2,
-      navigator.hardwareConcurrency || 2
-    );
+    1;
 
-  ort.env.wasm.simd = true;
+
+  ort.env.wasm.simd =
+    true;
+
 
   try{
 
@@ -1175,64 +1147,79 @@ async function getHTDemucsSession(){
       await ort.InferenceSession.create(
         MODEL_URL,
         {
+
           executionProviders:[
             "wasm"
           ],
 
           graphOptimizationLevel:
-            "all"
+            "all",
+
+          executionMode:
+            "sequential"
         }
       );
 
+
   }catch(error){
 
-    ortSession = null;
+    ortSession =
+      null;
+
 
     throw new Error(
-      "Could not load HTDemucs. " +
-      "Check your internet connection and make sure " +
-      "the browser allows cross-origin model loading. " +
+      "HTDemucs could not be loaded. " +
+      "Please check your internet connection. " +
       error.message
     );
   }
+
 
   return ortSession;
 }
 
 
 /* ============================================================
-   HTDEMUCS ENGINE
+   HTDEMUCS
    ============================================================ */
 
-async function runHTDemucs(mix){
+async function runHTDemucs(
+  mix
+){
 
   const session =
     await getHTDemucsSession();
 
+
   if(cancelRequested){
-    return;
+    throw new CancelledError();
   }
+
 
   const totalSamples =
     mix.left.length;
 
-  /*
-    We allocate one output buffer per:
-      stem
-      channel
 
-    Stem order from this HTDemucs ONNX model:
+  /*
+    Four stems:
 
       0 = drums
       1 = bass
       2 = other
       3 = vocals
+
+    Each stem contains:
+      left
+      right
   */
 
   const outputs =
     Array.from(
-      {length:4},
+      {
+        length:4
+      },
       () => [
+
         new Float32Array(
           totalSamples
         ),
@@ -1240,11 +1227,13 @@ async function runHTDemucs(mix){
         new Float32Array(
           totalSamples
         )
+
       ]
     );
 
+
   /*
-    Normalization buffer for overlap-add.
+    Used to normalize overlapping chunks.
   */
 
   const weights =
@@ -1252,11 +1241,9 @@ async function runHTDemucs(mix){
       totalSamples
     );
 
-  /*
-    Crossfade window.
 
-    It has a flat middle and fades the boundaries.
-    This avoids clicks between model chunks.
+  /*
+    Reference-style linear overlap window.
   */
 
   const window =
@@ -1264,17 +1251,17 @@ async function runHTDemucs(mix){
 
 
   /*
-    Calculate how many chunks are required.
+    Reference HTDemucs chunk count.
   */
 
   const chunkCount =
     Math.max(
       1,
       Math.ceil(
-        Math.max(
-          0,
-          totalSamples -
-          DEMUCS_OVERLAP
+        (
+          totalSamples +
+          DEMUCS_HOP -
+          1
         ) /
         DEMUCS_HOP
       )
@@ -1282,7 +1269,7 @@ async function runHTDemucs(mix){
 
 
   setStatus(
-    "HTDemucs ready. Separating…",
+    "HTDemucs AI is ready. Separating…",
     10
   );
 
@@ -1294,19 +1281,14 @@ async function runHTDemucs(mix){
   ){
 
     if(cancelRequested){
-
-      setStatus(
-        "Separation cancelled.",
-        0
-      );
-
-      return;
+      throw new CancelledError();
     }
 
 
     const start =
       chunkIndex *
       DEMUCS_HOP;
+
 
     const end =
       Math.min(
@@ -1315,18 +1297,17 @@ async function runHTDemucs(mix){
         totalSamples
       );
 
+
     const length =
       end -
       start;
 
 
     /*
-      Model input:
+      Allocate exactly one model input.
 
+      Shape:
         [1, 2, 343980]
-
-      First channel is the entire left plane.
-      Second channel is the entire right plane.
     */
 
     const input =
@@ -1335,6 +1316,7 @@ async function runHTDemucs(mix){
         DEMUCS_SAMPLES
       );
 
+
     input.set(
       mix.left.subarray(
         start,
@@ -1342,6 +1324,7 @@ async function runHTDemucs(mix){
       ),
       0
     );
+
 
     input.set(
       mix.right.subarray(
@@ -1352,7 +1335,11 @@ async function runHTDemucs(mix){
     );
 
 
-    const tensor =
+    /*
+      Create ONNX tensor.
+    */
+
+    const inputTensor =
       new ort.Tensor(
         "float32",
         input,
@@ -1364,27 +1351,84 @@ async function runHTDemucs(mix){
       );
 
 
-    const results =
-      await session.run({
-        mix:tensor
-      });
+    /*
+      Use the actual input name reported by
+      the ONNX graph.
+    */
+
+    const feeds = {};
+
+    feeds[
+      session.inputNames[0]
+    ] =
+      inputTensor;
+
+
+    let result;
+
+
+    try{
+
+      result =
+        await session.run(
+          feeds
+        );
+
+
+    }finally{
+
+      /*
+        Drop our references as soon as inference
+        is finished.
+      */
+
+      // The runtime owns the internal inference data.
+    }
+
+
+    if(cancelRequested){
+
+      /*
+        Explicitly drop result references before
+        cancelling.
+      */
+
+      result =
+        null;
+
+      throw new CancelledError();
+    }
 
 
     /*
-      Most exported versions of this model call
-      their output "stems".
+      Find the output tensor.
 
-      We also fall back to the first output in case
-      the model metadata uses another name.
+      Most versions call it "stems".
     */
 
-    const outputName =
-      results.stems
-        ? "stems"
-        : session.outputNames[0];
+    let outputTensor =
+      result.stems;
 
-    const outputTensor =
-      results[outputName];
+
+    if(!outputTensor){
+
+      outputTensor =
+        result[
+          session.outputNames[0]
+        ];
+    }
+
+
+    if(
+      !outputTensor ||
+      !outputTensor.data
+    ){
+
+      throw new Error(
+        "HTDemucs returned no stem output."
+      );
+    }
+
 
     const data =
       outputTensor.data;
@@ -1397,18 +1441,19 @@ async function runHTDemucs(mix){
 
       Layout:
 
-        drums-left
-        drums-right
-        bass-left
-        bass-right
-        other-left
-        other-right
-        vocals-left
-        vocals-right
+        stem 0 left
+        stem 0 right
+        stem 1 left
+        stem 1 right
+        stem 2 left
+        stem 2 right
+        stem 3 left
+        stem 3 right
     */
 
     const channelPlane =
       DEMUCS_SAMPLES;
+
 
     const stemPlane =
       2 *
@@ -1437,8 +1482,13 @@ async function runHTDemucs(mix){
           channel *
           channelPlane;
 
+
         const destination =
-          outputs[stem][channel];
+          outputs[
+            stem
+          ][
+            channel
+          ];
 
 
         for(
@@ -1460,8 +1510,7 @@ async function runHTDemucs(mix){
 
 
     /*
-      Add the same crossfade weights to the
-      normalization buffer.
+      Accumulate overlap weights.
     */
 
     for(
@@ -1472,20 +1521,46 @@ async function runHTDemucs(mix){
 
       weights[
         start + i
-      ] += window[i];
+      ] +=
+        window[i];
     }
+
+
+    /*
+      IMPORTANT:
+
+      Release references to the ONNX output before
+      moving to the next chunk.
+    */
+
+    outputTensor =
+      null;
+
+    result =
+      null;
+
+
+    /*
+      Release the input reference too.
+    */
+
+    // inputTensor and input become unreachable
+    // after this iteration.
 
 
     const percent =
       10 +
       (
-        chunkIndex + 1
-      ) /
-      chunkCount *
+        (
+          chunkIndex + 1
+        ) /
+        chunkCount
+      ) *
       82;
 
+
     setStatus(
-      "HTDemucs: chunk " +
+      "HTDemucs AI: chunk " +
       (chunkIndex + 1) +
       " / " +
       chunkCount,
@@ -1494,25 +1569,25 @@ async function runHTDemucs(mix){
 
 
     /*
-      Let the browser repaint between inference calls.
+      Give Safari/WebKit an opportunity to reclaim
+      memory and update the interface.
     */
 
-    await new Promise(
-      resolve =>
-        setTimeout(
-          resolve,
-          0
-        )
-    );
+    await yieldToBrowser();
+  }
+
+
+  if(cancelRequested){
+    throw new CancelledError();
   }
 
 
   /*
-    Normalize the overlap-add result.
+    Normalize overlap-add output.
   */
 
   setStatus(
-    "Reconstructing stems…",
+    "Reconstructing AI stems…",
     94
   );
 
@@ -1530,7 +1605,12 @@ async function runHTDemucs(mix){
     ){
 
       const buffer =
-        outputs[stem][channel];
+        outputs[
+          stem
+        ][
+          channel
+        ];
+
 
       for(
         let i=0;
@@ -1549,8 +1629,19 @@ async function runHTDemucs(mix){
 
 
   /*
-    Convert the four model outputs into WAV blobs.
+    Release the input mix before generating
+    the relatively large WAV blobs.
   */
+
+  currentMix =
+    null;
+
+
+  setStatus(
+    "Creating stem files…",
+    97
+  );
+
 
   const stems = {
 
@@ -1580,21 +1671,30 @@ async function runHTDemucs(mix){
   };
 
 
+  /*
+    Remove references to the Float32 output buffers.
+    The WAV blobs now contain the data.
+    The garbage collector can reclaim the arrays.
+  */
+
+  outputs.length = 0;
+
+
   setStatus(
     "Building stem players…",
-    98
+    99
   );
 
 
   renderResults(
-    stems,
-    true
+    stems
   );
 
 
   setStatus(
-    "HTDemucs separation complete.",
-    100
+    "HTDemucs AI separation complete.",
+    100,
+    "success"
   );
 }
 
@@ -1610,11 +1710,6 @@ function createCrossfadeWindow(){
       DEMUCS_SAMPLES
     );
 
-  /*
-    Use the overlap amount for the fades.
-
-    The middle stays at 1.
-  */
 
   const fade =
     DEMUCS_OVERLAP;
@@ -1626,7 +1721,9 @@ function createCrossfadeWindow(){
     i++
   ){
 
-    let value=1;
+    let value =
+      1;
+
 
     if(i < fade){
 
@@ -1635,10 +1732,12 @@ function createCrossfadeWindow(){
         fade;
     }
 
+
     const fromEnd =
       DEMUCS_SAMPLES -
       i -
       1;
+
 
     if(fromEnd < fade){
 
@@ -1650,9 +1749,6 @@ function createCrossfadeWindow(){
         );
     }
 
-    /*
-      Avoid exactly-zero weights.
-    */
 
     window[i] =
       Math.max(
@@ -1660,6 +1756,7 @@ function createCrossfadeWindow(){
         0.0001
       );
   }
+
 
   return window;
 }
@@ -1670,74 +1767,43 @@ function createCrossfadeWindow(){
    ============================================================ */
 
 function renderResults(
-  stems,
-  ai
+  stems
 ){
 
   clearResultsOnly();
 
-  const definitions =
-    ai
 
-      ? [
-          {
-            key:"vocals",
-            title:"Vocals",
-            tag:"HTDemucs stem",
-            color:"var(--green)"
-          },
+  const definitions = [
 
-          {
-            key:"drums",
-            title:"Drums",
-            tag:"HTDemucs stem",
-            color:"var(--accent)"
-          },
+    {
+      key:"vocals",
+      title:"Vocals",
+      tag:"HTDemucs AI stem",
+      color:"var(--green)"
+    },
 
-          {
-            key:"bass",
-            title:"Bass",
-            tag:"HTDemucs stem",
-            color:"var(--red)"
-          },
+    {
+      key:"drums",
+      title:"Drums",
+      tag:"HTDemucs AI stem",
+      color:"var(--accent)"
+    },
 
-          {
-            key:"other",
-            title:"Other",
-            tag:"HTDemucs stem",
-            color:"var(--blue)"
-          }
-        ]
+    {
+      key:"bass",
+      title:"Bass",
+      tag:"HTDemucs AI stem",
+      color:"var(--red)"
+    },
 
-      : [
-          {
-            key:"vocals",
-            title:"Vocals",
-            tag:"Center isolate",
-            color:"var(--green)"
-          },
+    {
+      key:"other",
+      title:"Other",
+      tag:"HTDemucs AI stem",
+      color:"var(--blue)"
+    }
 
-          {
-            key:"instrumental",
-            title:"Instrumental",
-            tag:"Vocal removed",
-            color:"var(--accent)"
-          },
-
-          {
-            key:"bass",
-            title:"Bass",
-            tag:"Low-frequency split",
-            color:"var(--red)"
-          },
-
-          {
-            key:"other",
-            title:"Other",
-            tag:"Remaining audio",
-            color:"var(--blue)"
-          }
-        ];
+  ];
 
 
   definitions.forEach(
@@ -1748,14 +1814,17 @@ function renderResults(
           definition.key
         ];
 
+
       if(!blob){
         return;
       }
+
 
       const url =
         URL.createObjectURL(
           blob
         );
+
 
       generatedUrls.push(
         url
@@ -1767,14 +1836,15 @@ function renderResults(
           "div"
         );
 
+
       track.className =
         "track";
 
-      track.style
-        .setProperty(
-          "--track-color",
-          definition.color
-        );
+
+      track.style.setProperty(
+        "--track-color",
+        definition.color
+      );
 
 
       const title =
@@ -1782,8 +1852,10 @@ function renderResults(
           "div"
         );
 
+
       title.className =
         "track-title";
+
 
       title.textContent =
         definition.title;
@@ -1794,8 +1866,10 @@ function renderResults(
           "div"
         );
 
+
       tag.className =
         "track-tag";
+
 
       tag.textContent =
         definition.tag;
@@ -1806,9 +1880,17 @@ function renderResults(
           "audio"
         );
 
-      player.controls = true;
-      player.preload = "metadata";
-      player.src = url;
+
+      player.controls =
+        true;
+
+
+      player.preload =
+        "metadata";
+
+
+      player.src =
+        url;
 
 
       const download =
@@ -1816,8 +1898,10 @@ function renderResults(
           "button"
         );
 
+
       download.type =
         "button";
+
 
       download.textContent =
         "Download WAV";
@@ -1827,27 +1911,13 @@ function renderResults(
         "click",
         () => {
 
-          const link =
-            document.createElement(
-              "a"
-            );
-
-          link.href =
-            url;
-
-          link.download =
+          downloadBlob(
+            url,
             createStemFilename(
               definition.key
-            );
+            )
+          );
 
-          document.body
-            .appendChild(
-              link
-            );
-
-          link.click();
-
-          link.remove();
         }
       );
 
@@ -1856,13 +1926,16 @@ function renderResults(
         title
       );
 
+
       track.appendChild(
         tag
       );
 
+
       track.appendChild(
         player
       );
+
 
       track.appendChild(
         download
@@ -1875,11 +1948,12 @@ function renderResults(
 
 
       /*
-        Use vocals as the main preview.
+        Vocals becomes the main preview.
       */
 
       if(
-        definition.key === "vocals"
+        definition.key ===
+        "vocals"
       ){
 
         masterPlayer.src =
@@ -1888,6 +1962,49 @@ function renderResults(
 
     }
   );
+
+
+  results.hidden =
+    false;
+}
+
+
+/* ============================================================
+   DOWNLOAD
+   ============================================================ */
+
+function downloadBlob(
+  url,
+  filename
+){
+
+  const link =
+    document.createElement(
+      "a"
+    );
+
+
+  link.href =
+    url;
+
+
+  link.download =
+    filename;
+
+
+  link.style.display =
+    "none";
+
+
+  document.body.appendChild(
+    link
+  );
+
+
+  link.click();
+
+
+  link.remove();
 }
 
 
@@ -1904,11 +2021,13 @@ function createStemFilename(
       ? currentFile.name
       : "track";
 
+
   const base =
     original.replace(
       /\.[^/.]+$/,
       ""
     );
+
 
   return (
     base +
@@ -1934,20 +2053,27 @@ function makeStereoWav(
       right.length
     );
 
-  const bytesPerSample=2;
 
-  const channels=2;
+  const channels =
+    2;
+
+
+  const bytesPerSample =
+    2;
+
 
   const dataSize =
     samples *
     channels *
     bytesPerSample;
 
+
   const buffer =
     new ArrayBuffer(
       44 +
       dataSize
     );
+
 
   const view =
     new DataView(
@@ -1961,11 +2087,13 @@ function makeStereoWav(
     "RIFF"
   );
 
+
   view.setUint32(
     4,
     36 + dataSize,
     true
   );
+
 
   writeString(
     view,
@@ -1973,17 +2101,20 @@ function makeStereoWav(
     "WAVE"
   );
 
+
   writeString(
     view,
     12,
     "fmt "
   );
 
+
   view.setUint32(
     16,
     16,
     true
   );
+
 
   /*
     PCM
@@ -1995,17 +2126,20 @@ function makeStereoWav(
     true
   );
 
+
   view.setUint16(
     22,
     channels,
     true
   );
 
+
   view.setUint32(
     24,
     TARGET_SAMPLE_RATE,
     true
   );
+
 
   view.setUint32(
     28,
@@ -2015,6 +2149,7 @@ function makeStereoWav(
     true
   );
 
+
   view.setUint16(
     32,
     channels *
@@ -2022,17 +2157,20 @@ function makeStereoWav(
     true
   );
 
+
   view.setUint16(
     34,
     16,
     true
   );
 
+
   writeString(
     view,
     36,
     "data"
   );
+
 
   view.setUint32(
     40,
@@ -2041,7 +2179,8 @@ function makeStereoWav(
   );
 
 
-  let offset=44;
+  let offset =
+    44;
 
 
   for(
@@ -2053,13 +2192,20 @@ function makeStereoWav(
     let l =
       left[i];
 
+
     let r =
       right[i];
 
 
-    /*
-      Prevent invalid PCM values.
-    */
+    if(!Number.isFinite(l)){
+      l = 0;
+    }
+
+
+    if(!Number.isFinite(r)){
+      r = 0;
+    }
+
 
     l =
       Math.max(
@@ -2069,6 +2215,7 @@ function makeStereoWav(
           l
         )
       );
+
 
     r =
       Math.max(
@@ -2085,6 +2232,7 @@ function makeStereoWav(
         ? l * 32768
         : l * 32767;
 
+
     const ri =
       r < 0
         ? r * 32768
@@ -2097,6 +2245,7 @@ function makeStereoWav(
       true
     );
 
+
     offset += 2;
 
 
@@ -2105,6 +2254,7 @@ function makeStereoWav(
       ri,
       true
     );
+
 
     offset += 2;
   }
@@ -2132,7 +2282,7 @@ function writeString(
   ){
 
     view.setUint8(
-      offset+i,
+      offset + i,
       string.charCodeAt(i)
     );
   }
@@ -2145,13 +2295,17 @@ function writeString(
 
 function clearResultsOnly(){
 
-  trackList.innerHTML = "";
+  trackList.innerHTML =
+    "";
+
 
   masterPlayer.pause();
+
 
   masterPlayer.removeAttribute(
     "src"
   );
+
 
   masterPlayer.load();
 }
@@ -2163,23 +2317,64 @@ function clearResults(){
     url => {
 
       try{
+
         URL.revokeObjectURL(
           url
         );
+
       }catch(_){}
+
     }
   );
 
-  generatedUrls=[];
+
+  generatedUrls =
+    [];
+
 
   clearResultsOnly();
 
-  results.hidden=true;
+
+  results.hidden =
+    true;
+
 
   progressFill.style.width =
     "0%";
+}
 
-  fileInfo.textContent="";
+
+/* ============================================================
+   BROWSER YIELD
+   ============================================================ */
+
+function yieldToBrowser(){
+
+  return new Promise(
+    resolve => {
+
+      if(
+        typeof requestIdleCallback ===
+        "function"
+      ){
+
+        requestIdleCallback(
+          () => resolve(),
+          {
+            timeout:100
+          }
+        );
+
+      }else{
+
+        setTimeout(
+          resolve,
+          0
+        );
+      }
+
+    }
+  );
 }
 
 
@@ -2187,23 +2382,64 @@ function clearResults(){
    ERROR HANDLING
    ============================================================ */
 
-function handleError(error){
+function handleError(
+  error
+){
 
   console.error(
     "Fourtrack error:",
     error
   );
 
+
+  let message =
+    error &&
+    error.message
+      ? error.message
+      : String(error);
+
+
+  /*
+    Make common iOS memory failures easier to understand.
+  */
+
+  if(
+    /memory|allocation|abort|wasm/i.test(
+      message
+    )
+  ){
+
+    message =
+      "The browser ran out of memory while running " +
+      "HTDemucs. Try a shorter audio file or close " +
+      "other Safari tabs before trying again.";
+  }
+
+
   setStatus(
-    "Error: " +
-    (
-      error &&
-      error.message
-        ? error.message
-        : String(error)
-    ),
-    0
+    "Error: " + message,
+    0,
+    "error"
   );
+}
+
+
+/* ============================================================
+   CANCEL ERROR
+   ============================================================ */
+
+class CancelledError
+  extends Error{
+
+  constructor(){
+
+    super(
+      "Operation cancelled."
+    );
+
+    this.name =
+      "CancelledError";
+  }
 }
 
 
@@ -2219,19 +2455,31 @@ function formatBytes(
     return bytes + " B";
   }
 
-  if(bytes < 1024*1024){
+
+  if(bytes < 1024 * 1024){
 
     return (
-      (bytes/1024)
+      (bytes / 1024)
         .toFixed(1) +
       " KB"
     );
   }
 
+
+  if(bytes < 1024 * 1024 * 1024){
+
+    return (
+      (bytes / 1024 / 1024)
+        .toFixed(1) +
+      " MB"
+    );
+  }
+
+
   return (
-    (bytes/1024/1024)
-      .toFixed(1) +
-    " MB"
+    (bytes / 1024 / 1024 / 1024)
+      .toFixed(2) +
+    " GB"
   );
 }
 
@@ -2240,7 +2488,9 @@ function formatBytes(
    INITIAL STATE
    ============================================================ */
 
-setMode("dsp");
+setStatus(
+  "Ready for HTDemucs AI separation."
+);
 
 </script>
 
