@@ -343,6 +343,12 @@
     </div>
   </div>
 
+  <div class="mode-row" id="modeRow">
+    <button class="mode-btn active" data-mode="dsp" id="modeBtnDsp">Built-in — instant</button>
+    <button class="mode-btn" data-mode="ai" id="modeBtnAi">Demucs AI — most accurate</button>
+  </div>
+  <p class="mode-note" id="modeNote">Signal processing, runs instantly, works on any device.</p>
+
   <section id="dropzone" class="dropzone">
     <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.aac,video/mp4,.mp4" hidden>
     <div class="slot" aria-hidden="true">
@@ -378,10 +384,14 @@
       <span id="processingLabel">Splitting into stems…</span>
     </div>
 
-    <div class="strength-row">
+    <div class="strength-row" id="strengthRow">
       <label for="strengthSlider">Separation strength</label>
       <input type="range" id="strengthSlider" min="0.5" max="2" step="0.1" value="1">
       <span id="strengthReadout" class="mono">1.0×</span>
+    </div>
+
+    <div id="aiStatusRow" class="ai-status-row hidden">
+      <span id="aiStatusText">Demucs AI mode — a real neural network, not signal processing.</span>
     </div>
 
     <div id="console" class="console"></div>
@@ -390,11 +400,12 @@
 
     <details class="how">
       <summary>How this actually works</summary>
-      <p>This runs real signal processing in your browser, not a trained separation model — no AI, which is why it's free with no server involved. For every moment and every frequency in the track, it compares the left and right channels: content that matches closely between them — usually the lead vocal, mixed dead-center — gets pulled into <strong>Vocals</strong>; everything left over becomes <strong>Instrumental</strong>, and it's also checked against the frequency range a voice actually occupies so a dead-center kick drum or bass line doesn't get mistaken for vocal. That's a frequency-by-frequency, moment-by-moment comparison (a short-time Fourier transform under the hood), not one blanket subtraction across the whole mix. <strong>Bass</strong> and <strong>Other</strong> are then a clean low/high split of the instrumental at 180 Hz. The <strong>separation strength</strong> slider controls how strict the left/right match has to be — push it up when vocals are still audible in Instrumental or Other, since a vocal with studio widening or doubling on it won't match perfectly between channels and needs more leniency to fully capture. That comes at the cost of a slightly less pure Vocals stem. Some vocals are widened enough that even at max strength a little will remain in the mix — that's the real ceiling of a technique based on stereo position rather than trained recognition of what a voice sounds like. It still won't cleanly lift drums out of a dense mix the way a paid neural separator will, but for isolating vocals, building karaoke tracks, and pulling out a bassline, it's well beyond a simple phase-cancellation trick — and your audio never leaves this tab.</p>
+      <p id="howItWorksDsp">This runs real signal processing in your browser, not a trained separation model — no AI, which is why it's free with no server involved. For every moment and every frequency in the track, it compares the left and right channels: content that matches closely between them — usually the lead vocal, mixed dead-center — gets pulled into <strong>Vocals</strong>; everything left over becomes <strong>Instrumental</strong>, and it's also checked against the frequency range a voice actually occupies so a dead-center kick drum or bass line doesn't get mistaken for vocal. That's a frequency-by-frequency, moment-by-moment comparison (a short-time Fourier transform under the hood), not one blanket subtraction across the whole mix. <strong>Bass</strong> and <strong>Other</strong> are then a clean low/high split of the instrumental at 180 Hz. The <strong>separation strength</strong> slider controls how strict the left/right match has to be — push it up when vocals are still audible in Instrumental or Other, since a vocal with studio widening or doubling on it won't match perfectly between channels and needs more leniency to fully capture. That comes at the cost of a slightly less pure Vocals stem. Some vocals are widened enough that even at max strength a little will remain in the mix — that's the real ceiling of a technique based on stereo position rather than trained recognition of what a voice sounds like. It still won't cleanly lift drums out of a dense mix the way a paid neural separator will, but for isolating vocals, building karaoke tracks, and pulling out a bassline, it's well beyond a simple phase-cancellation trick — and your audio never leaves this tab.</p>
+      <p id="howItWorksAi" class="hidden">This mode runs <strong>HTDemucs</strong>, an open-source neural network trained specifically to recognize what drums, bass, vocals, and other instruments actually sound like — not just where they sit in the stereo field. That's why it can cleanly split out <strong>Drums</strong> as its own stem, something the built-in mode can't do at all. The first time you use this mode, your browser downloads the model weights (~170MB, one time, from Hugging Face's public model hub) and caches them locally. After that, everything — loading the model and running it on your track — happens entirely inside this tab using <a href="https://onnxruntime.ai/" target="_blank" rel="noopener">ONNX Runtime Web</a> and your device's GPU or CPU. Your audio file itself is never uploaded anywhere, at any point — only the (public, generic) model weights are fetched, the same file for every user. It needs a reasonably modern browser and some patience on slower hardware or long tracks.</p>
     </details>
   </section>
 
-  <footer class="note">Runs fully client-side with the Web Audio API. No account, no upload, no server.</footer>
+  <footer class="note">Runs fully client-side. No account, no upload, no server for your audio — ever.</footer>
 </div>
 
 <script>
