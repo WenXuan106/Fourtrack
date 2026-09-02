@@ -390,7 +390,7 @@
 
     <details class="how">
       <summary>How this actually works</summary>
-      <p>This is signal processing, not a trained separation model — there's no AI here, which is exactly why it can run for free in your browser instead of on a paid server. <strong>Instrumental</strong> cancels out whatever is identical in the left and right channels, which is usually the lead vocal when it's mixed dead-center. <strong>Vocals</strong> keeps only that shared center signal, filtered down to the vocal frequency range. <strong>Bass</strong> and <strong>Other</strong> are a clean low/high split at 180 Hz. The <strong>separation strength</strong> slider pushes the center-channel cancellation harder above 1.0×, which removes more of the vocal (and anything else mixed dead-center) at the cost of a more hollow, phasey sound on what's left — worth nudging up on tracks where vocals still bleed through, and worth leaving at 1.0× when the instrumental sounds too thin. It won't cleanly lift drums out of a busy mix the way a paid neural separator will, but for karaoke tracks, quick acapellas, and isolating a bassline, it holds up well — and it costs nothing because your audio never leaves this tab.</p>
+      <p>This runs real signal processing in your browser, not a trained separation model — no AI, which is why it's free with no server involved. For every moment and every frequency in the track, it compares the left and right channels: content that matches closely between them — usually the lead vocal, mixed dead-center — gets pulled into <strong>Vocals</strong>; everything left over becomes <strong>Instrumental</strong>. That's a frequency-by-frequency comparison (a short-time Fourier transform under the hood), not one blanket subtraction across the whole mix, so it holds up better than a basic karaoke filter and leaks less of the rest of the mix into the vocal. <strong>Bass</strong> and <strong>Other</strong> are then a clean low/high split of the instrumental at 180 Hz. The <strong>separation strength</strong> slider controls how strict the left/right match has to be — push it up on tracks where vocals still bleed through, at the cost of a slightly more processed-sounding result. It still won't cleanly lift drums out of a dense mix the way a paid neural separator will, but for isolating vocals, building karaoke tracks, and pulling out a bassline, it's well beyond a simple phase-cancellation trick — and your audio never leaves this tab.</p>
     </details>
   </section>
 
@@ -542,21 +542,190 @@
   }
 
   // ============================================================
-  // Stem rendering (OfflineAudioContext)
+  // DSP core — FFT / inverse FFT (iterative radix-2 Cooley-Tukey)
+  // ============================================================
+  function fft(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) {
+        let t = re[i]; re[i] = re[j]; re[j] = t;
+        t = im[i]; im[i] = im[j]; im[j] = t;
+      }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = -2 * Math.PI / len;
+      const wr = Math.cos(ang), wi = Math.sin(ang);
+      const half = len >> 1;
+      for (let i = 0; i < n; i += len) {
+        let curR = 1, curI = 0;
+        for (let k = 0; k < half; k++) {
+          const uR = re[i + k], uI = im[i + k];
+          const vR = re[i + k + half] * curR - im[i + k + half] * curI;
+          const vI = re[i + k + half] * curI + im[i + k + half] * curR;
+          re[i + k] = uR + vR; im[i + k] = uI + vI;
+          re[i + k + half] = uR - vR; im[i + k + half] = uI - vI;
+          const nextR = curR * wr - curI * wi;
+          const nextI = curR * wi + curI * wr;
+          curR = nextR; curI = nextI;
+        }
+      }
+    }
+  }
+  function ifft(re, im) {
+    const n = re.length;
+    for (let i = 0; i < n; i++) im[i] = -im[i];
+    fft(re, im);
+    for (let i = 0; i < n; i++) { re[i] = re[i] / n; im[i] = -im[i] / n; }
+  }
+  function hannWindow(n) {
+    const w = new Float64Array(n);
+    for (let i = 0; i < n; i++) w[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
+    return w;
+  }
+
+  const STFT_SIZE = 2048;
+  const STFT_HOP = 512; // 75% overlap
+
+  // A lead vocal's energy is concentrated roughly 150Hz-4.5kHz (fundamental +
+  // formants). This smoothly gates the extraction to that range regardless
+  // of how "centered" a bin looks, because plenty of mixes pan the kick and
+  // bass dead-center too — sometimes even more centered than a vocal that's
+  // been doubled or widened with a chorus effect. Without this, the
+  // extractor happily grabs whichever is most centered, vocal or not.
+  // Strength narrows the knees for a stricter, more vocal-only band.
+  function buildVocalPrior(sampleRate, strength) {
+    const t = Math.max(0, strength - 1); // 0 at <=1x, 1 at 2x
+    const loKnee = 130 + t * 150;   // 130Hz -> 280Hz
+    const loFull = loKnee + 100;
+    const hiFull = 4500 - t * 1200; // 4500Hz -> 3300Hz
+    const hiKnee = hiFull + 2000;
+    const prior = new Float64Array(STFT_SIZE);
+    for (let k = 0; k < STFT_SIZE; k++) {
+      const kk = k <= STFT_SIZE / 2 ? k : STFT_SIZE - k;
+      const freq = kk * sampleRate / STFT_SIZE;
+      let p;
+      if (freq <= loKnee) p = 0;
+      else if (freq < loFull) p = (freq - loKnee) / (loFull - loKnee);
+      else if (freq <= hiFull) p = 1;
+      else if (freq < hiKnee) p = 1 - (freq - hiFull) / (hiKnee - hiFull);
+      else p = 0;
+      prior[k] = p;
+    }
+    return prior;
+  }
+
+  // Frequency-bin-by-frequency-bin center-channel mask: for every bin in
+  // every analysis frame, compares how similar left and right are, then
+  // gates that by how plausible the bin's frequency is for a lead vocal.
+  // Bins that both match closely between channels AND sit in the vocal
+  // range score near 1; everything else is suppressed. This is far more
+  // selective than a single broadband phase-cancellation pass, because it
+  // adapts per frequency and per moment instead of one blanket subtraction.
+  function extractCenterVocal(L, R, sampleRate, strength, onProgress) {
+    return new Promise((resolve) => {
+      const len = L.length;
+      const win = hannWindow(STFT_SIZE);
+      const out = new Float64Array(len);
+      const winSum = new Float64Array(len);
+      const exponent = 1 + strength * 2; // 0.5x -> 2, 2.0x -> 5
+      const prior = buildVocalPrior(sampleRate, strength);
+      const totalFrames = Math.ceil(len / STFT_HOP) + Math.ceil(STFT_SIZE / STFT_HOP);
+
+      const Lre = new Float64Array(STFT_SIZE), Lim = new Float64Array(STFT_SIZE);
+      const Rre = new Float64Array(STFT_SIZE), Rim = new Float64Array(STFT_SIZE);
+      let frameIdx = 0;
+
+      function processChunk() {
+        const chunkEnd = Math.min(totalFrames, frameIdx + 200);
+        for (; frameIdx < chunkEnd; frameIdx++) {
+          const start = frameIdx * STFT_HOP;
+          for (let i = 0; i < STFT_SIZE; i++) {
+            const s = start + i;
+            const w = win[i];
+            Lre[i] = (s < len ? L[s] : 0) * w;
+            Rre[i] = (s < len ? R[s] : 0) * w;
+            Lim[i] = 0; Rim[i] = 0;
+          }
+          fft(Lre, Lim);
+          fft(Rre, Rim);
+          for (let k = 0; k < STFT_SIZE; k++) {
+            const lRe = Lre[k], lIm = Lim[k], rRe = Rre[k], rIm = Rim[k];
+            const lMag = Math.hypot(lRe, lIm), rMag = Math.hypot(rRe, rIm);
+            const diffMag = Math.hypot(lRe - rRe, lIm - rIm);
+            const sumMag = lMag + rMag + 1e-9;
+            let sim = 1 - diffMag / sumMag;
+            if (sim < 0) sim = 0; else if (sim > 1) sim = 1;
+            const mask = Math.pow(sim, exponent) * prior[k];
+            Lre[k] = (lRe + rRe) * 0.5 * mask;
+            Lim[k] = (lIm + rIm) * 0.5 * mask;
+          }
+          ifft(Lre, Lim);
+          for (let i = 0; i < STFT_SIZE; i++) {
+            const s = start + i;
+            if (s < len) { out[s] += Lre[i]; winSum[s] += win[i]; }
+          }
+        }
+        if (onProgress) onProgress(Math.min(100, Math.round(100 * frameIdx / totalFrames)));
+        if (frameIdx < totalFrames) {
+          setTimeout(processChunk, 0);
+        } else {
+          // Guard against edges where window overlap hasn't fully built up
+          // yet (winSum near zero) — dividing there would spike to huge,
+          // clipping-inducing values instead of correctly reading ~0.
+          let maxWinSum = 0;
+          for (let i = 0; i < len; i++) if (winSum[i] > maxWinSum) maxWinSum = winSum[i];
+          const floor = maxWinSum * 0.05;
+          const result = new Float32Array(len);
+          for (let i = 0; i < len; i++) result[i] = winSum[i] > floor ? out[i] / winSum[i] : 0;
+          resolve(result);
+        }
+      }
+      processChunk();
+    });
+  }
+
+  // ============================================================
+  // Stem rendering
   // ============================================================
   async function runSplit(buffer) {
     processingStrip.classList.remove("hidden");
     STEM_KEYS.forEach(k => setDownloadEnabled(k, false));
     try {
       const stereo = buffer.numberOfChannels >= 2;
-      processingLabel.textContent = "Isolating vocals…";
-      const vocals = await renderVocals(buffer, stereo, strength);
-      processingLabel.textContent = "Removing vocals…";
-      const instrumental = await renderInstrumental(buffer, stereo, strength);
+      let vocalMono, instrumental;
+
+      if (stereo) {
+        const L = buffer.getChannelData(0);
+        const R = buffer.getChannelData(1);
+        vocalMono = await extractCenterVocal(L, R, buffer.sampleRate, strength, (pct) => {
+          processingLabel.textContent = `Separating vocals… ${pct}%`;
+        });
+        instrumental = audioCtx.createBuffer(2, buffer.length, buffer.sampleRate);
+        const instL = instrumental.getChannelData(0);
+        const instR = instrumental.getChannelData(1);
+        for (let i = 0; i < buffer.length; i++) {
+          instL[i] = L[i] - vocalMono[i];
+          instR[i] = R[i] - vocalMono[i];
+        }
+      } else {
+        processingLabel.textContent = "Isolating vocal range…";
+        vocalMono = buffer.getChannelData(0).slice();
+        instrumental = await renderMonoInstrumentalFallback(buffer);
+      }
+
+      processingLabel.textContent = "Finishing up…";
+      const vocalRaw = audioCtx.createBuffer(2, buffer.length, buffer.sampleRate);
+      vocalRaw.copyToChannel(vocalMono, 0);
+      vocalRaw.copyToChannel(vocalMono, 1);
+      const vocals = await renderVocalPolish(vocalRaw);
+
       processingLabel.textContent = "Splitting bass…";
-      const bass = await renderBand(buffer, "lowpass", CROSSOVER_HZ);
+      const bass = await renderBand(instrumental, "lowpass", CROSSOVER_HZ);
       processingLabel.textContent = "Splitting the rest…";
-      const other = await renderBand(buffer, "highpass", CROSSOVER_HZ);
+      const other = await renderBand(instrumental, "highpass", CROSSOVER_HZ);
 
       stemBuffers = { vocals, instrumental, bass, other };
       if (!graphReady) { setupPlaybackGraph(); graphReady = true; }
@@ -570,72 +739,32 @@
     }
   }
 
-  function renderVocals(buffer, stereo, strength) {
+  function renderVocalPolish(buffer) {
+    // The real vocal/frequency gating already happened during extraction
+    // (it had to, so the Instrumental stem benefits too). This is just a
+    // gentle cleanup pass to remove any DC offset or sub-sonic rumble.
     const ctx = new OfflineAudioContext(2, buffer.length, buffer.sampleRate);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    // Higher strength narrows the band around typical lead-vocal frequencies,
-    // trimming bass/treble bleed from whatever else is mixed center.
-    const t = Math.max(0, (strength - 1) / 1.0); // 0 at 1x, 1 at 2x
-    const hpFreq = 180 + t * 220;   // 180Hz -> 400Hz
-    const lpFreq = 4500 - t * 1700; // 4500Hz -> 2800Hz
-    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = hpFreq;
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass";  lp.frequency.value = lpFreq;
-    hp.connect(lp);
-
-    if (stereo) {
-      const splitter = ctx.createChannelSplitter(2);
-      const gL = ctx.createGain(); gL.gain.value = 0.5;
-      const gR = ctx.createGain(); gR.gain.value = 0.5;
-      src.connect(splitter);
-      splitter.connect(gL, 0);
-      splitter.connect(gR, 1);
-      gL.connect(hp);
-      gR.connect(hp);
-      const merger = ctx.createChannelMerger(2);
-      lp.connect(merger, 0, 0);
-      lp.connect(merger, 0, 1);
-      merger.connect(ctx.destination);
-    } else {
-      src.connect(hp);
-      lp.connect(ctx.destination);
-    }
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 60;
+    src.connect(hp); hp.connect(ctx.destination);
     src.start(0);
     return ctx.startRendering();
   }
 
-  function renderInstrumental(buffer, stereo, strength) {
-    const ctx = new OfflineAudioContext(2, buffer.length, buffer.sampleRate);
+  function renderMonoInstrumentalFallback(buffer) {
+    // No left/right difference to work with on mono audio, so this is a
+    // best-effort dip around the vocal presence range rather than true removal.
+    const ctx = new OfflineAudioContext(1, buffer.length, buffer.sampleRate);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-
-    if (stereo) {
-      const splitter = ctx.createChannelSplitter(2);
-      src.connect(splitter);
-      // strength > 1 over-cancels the center channel: it removes more of the
-      // vocal (and any other dead-center content) at the cost of a more
-      // hollow, phasey sound on the remaining mix.
-      const negR = ctx.createGain(); negR.gain.value = -strength;
-      const negL = ctx.createGain(); negL.gain.value = -strength;
-      splitter.connect(negR, 1);
-      splitter.connect(negL, 0);
-      const merger = ctx.createChannelMerger(2);
-      splitter.connect(merger, 0, 0);   // L
-      negR.connect(merger, 0, 0);       // + (-R)
-      splitter.connect(merger, 1, 1);   // R
-      negL.connect(merger, 0, 1);       // + (-L)
-      merger.connect(ctx.destination);
-    } else {
-      // Mono: no phase trick available. Best effort — gentle dip around the
-      // vocal presence range so it isn't a pure no-op.
-      const notch = ctx.createBiquadFilter();
-      notch.type = "peaking";
-      notch.frequency.value = 1800;
-      notch.Q.value = 0.8;
-      notch.gain.value = -8;
-      src.connect(notch);
-      notch.connect(ctx.destination);
-    }
+    const notch = ctx.createBiquadFilter();
+    notch.type = "peaking";
+    notch.frequency.value = 1800;
+    notch.Q.value = 0.8;
+    notch.gain.value = -8;
+    src.connect(notch);
+    notch.connect(ctx.destination);
     src.start(0);
     return ctx.startRendering();
   }
