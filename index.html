@@ -390,7 +390,7 @@
 
     <details class="how">
       <summary>How this actually works</summary>
-      <p>This runs real signal processing in your browser, not a trained separation model — no AI, which is why it's free with no server involved. For every moment and every frequency in the track, it compares the left and right channels: content that matches closely between them — usually the lead vocal, mixed dead-center — gets pulled into <strong>Vocals</strong>; everything left over becomes <strong>Instrumental</strong>. That's a frequency-by-frequency comparison (a short-time Fourier transform under the hood), not one blanket subtraction across the whole mix, so it holds up better than a basic karaoke filter and leaks less of the rest of the mix into the vocal. <strong>Bass</strong> and <strong>Other</strong> are then a clean low/high split of the instrumental at 180 Hz. The <strong>separation strength</strong> slider controls how strict the left/right match has to be — push it up on tracks where vocals still bleed through, at the cost of a slightly more processed-sounding result. It still won't cleanly lift drums out of a dense mix the way a paid neural separator will, but for isolating vocals, building karaoke tracks, and pulling out a bassline, it's well beyond a simple phase-cancellation trick — and your audio never leaves this tab.</p>
+      <p>This runs real signal processing in your browser, not a trained separation model — no AI, which is why it's free with no server involved. For every moment and every frequency in the track, it compares the left and right channels: content that matches closely between them — usually the lead vocal, mixed dead-center — gets pulled into <strong>Vocals</strong>; everything left over becomes <strong>Instrumental</strong>, and it's also checked against the frequency range a voice actually occupies so a dead-center kick drum or bass line doesn't get mistaken for vocal. That's a frequency-by-frequency, moment-by-moment comparison (a short-time Fourier transform under the hood), not one blanket subtraction across the whole mix. <strong>Bass</strong> and <strong>Other</strong> are then a clean low/high split of the instrumental at 180 Hz. The <strong>separation strength</strong> slider controls how strict the left/right match has to be — push it up when vocals are still audible in Instrumental or Other, since a vocal with studio widening or doubling on it won't match perfectly between channels and needs more leniency to fully capture. That comes at the cost of a slightly less pure Vocals stem. Some vocals are widened enough that even at max strength a little will remain in the mix — that's the real ceiling of a technique based on stereo position rather than trained recognition of what a voice sounds like. It still won't cleanly lift drums out of a dense mix the way a paid neural separator will, but for isolating vocals, building karaoke tracks, and pulling out a bassline, it's well beyond a simple phase-cancellation trick — and your audio never leaves this tab.</p>
     </details>
   </section>
 
@@ -589,18 +589,19 @@
   const STFT_SIZE = 2048;
   const STFT_HOP = 512; // 75% overlap
 
-  // A lead vocal's energy is concentrated roughly 150Hz-4.5kHz (fundamental +
-  // formants). This smoothly gates the extraction to that range regardless
-  // of how "centered" a bin looks, because plenty of mixes pan the kick and
-  // bass dead-center too — sometimes even more centered than a vocal that's
-  // been doubled or widened with a chorus effect. Without this, the
-  // extractor happily grabs whichever is most centered, vocal or not.
-  // Strength narrows the knees for a stricter, more vocal-only band.
+  // A lead vocal's energy is concentrated roughly 100Hz-5kHz (fundamental +
+  // formants). This gates the extraction to that range regardless of how
+  // "centered" a bin looks, because plenty of mixes pan the kick and bass
+  // dead-center too — sometimes even more centered than a vocal that's been
+  // doubled or widened with a chorus effect. Without this, the extractor
+  // happily grabs whichever is most centered, vocal or not. Higher strength
+  // widens the window, trading some purity for catching more of a vocal
+  // that isn't perfectly centered.
   function buildVocalPrior(sampleRate, strength) {
-    const t = Math.max(0, strength - 1); // 0 at <=1x, 1 at 2x
-    const loKnee = 130 + t * 150;   // 130Hz -> 280Hz
+    const t = Math.max(0, Math.min(1, (strength - 0.5) / 1.5)); // 0..1 over the slider range
+    const loKnee = 200 - t * 100;   // 200Hz -> 100Hz
     const loFull = loKnee + 100;
-    const hiFull = 4500 - t * 1200; // 4500Hz -> 3300Hz
+    const hiFull = 3800 + t * 1200; // 3800Hz -> 5000Hz
     const hiKnee = hiFull + 2000;
     const prior = new Float64Array(STFT_SIZE);
     for (let k = 0; k < STFT_SIZE; k++) {
@@ -624,13 +625,18 @@
   // range score near 1; everything else is suppressed. This is far more
   // selective than a single broadband phase-cancellation pass, because it
   // adapts per frequency and per moment instead of one blanket subtraction.
+  // Strength lowers how strict the L/R match has to be — a vocal that's
+  // been stereo-widened won't match perfectly, so pushing strength up
+  // captures more of it (cleaner Instrumental) at the cost of a slightly
+  // less pure Vocals stem.
   function extractCenterVocal(L, R, sampleRate, strength, onProgress) {
     return new Promise((resolve) => {
       const len = L.length;
       const win = hannWindow(STFT_SIZE);
       const out = new Float64Array(len);
       const winSum = new Float64Array(len);
-      const exponent = 1 + strength * 2; // 0.5x -> 2, 2.0x -> 5
+      const t = Math.max(0, Math.min(1, (strength - 0.5) / 1.5));
+      const exponent = 3.5 - t * 2.5; // 3.5 (strict) -> 1.0 (lenient)
       const prior = buildVocalPrior(sampleRate, strength);
       const totalFrames = Math.ceil(len / STFT_HOP) + Math.ceil(STFT_SIZE / STFT_HOP);
 
